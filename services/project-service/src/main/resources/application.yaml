@@ -1,6 +1,24 @@
 spring:
   application:
     name: project-service
+  datasource:
+    # Local defaults match deploy/compose; override with SPRING_DATASOURCE_* env vars.
+    url: jdbc:postgresql://localhost:5432/flakehunter
+    username: flakehunter
+    password: flakehunter
+  flyway:
+    # This service owns only the "project" schema (tech doc section 7).
+    schemas: project
+    default-schema: project
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate # Flyway owns the schema; Hibernate only checks it matches.
+    properties:
+      hibernate.default_schema: project
+  mvc:
+    problemdetails:
+      enabled: true # Errors as RFC 7807 problem details.
 
 server:
   port: 8081
