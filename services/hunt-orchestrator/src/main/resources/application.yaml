@@ -1,0 +1,6 @@
+spring:
+  application:
+    name: hunt-orchestrator
+
+server:
+  port: 8082
