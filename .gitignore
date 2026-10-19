@@ -27,3 +27,12 @@ replay_pid*
 .env
 .env.*
 !.env.example
+!gradle/wrapper/gradle-wrapper.jar
+
+# Build output and caches (Gradle, VS Code Java extension)
+.gradle/
+build/
+bin/
+
+# Editor settings (personal)
+.vscode/
