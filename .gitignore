@@ -36,3 +36,6 @@ bin/
 
 # Editor settings (personal)
 .vscode/
+
+# Phase 0 script clones target repos here
+benchmark/.work/
