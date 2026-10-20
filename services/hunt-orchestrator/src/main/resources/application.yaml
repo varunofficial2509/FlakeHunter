@@ -1,6 +1,31 @@
 spring:
   application:
     name: hunt-orchestrator
+  datasource:
+    # Local defaults match deploy/compose; override with SPRING_DATASOURCE_* env vars.
+    url: jdbc:postgresql://localhost:5432/flakehunter
+    username: flakehunter
+    password: flakehunter
+  flyway:
+    # This service owns only the "hunt" schema (tech doc section 7).
+    schemas: hunt
+    default-schema: hunt
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate # Flyway owns the schema; Hibernate only checks it matches.
+    properties:
+      hibernate.default_schema: hunt
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      # Tech doc section 6: a send counts only once every replica has it, and retries never duplicate.
+      acks: all
+      properties:
+        enable.idempotence: true
+  mvc:
+    problemdetails:
+      enabled: true # Errors as RFC 7807 problem details.
 
 server:
   port: 8082

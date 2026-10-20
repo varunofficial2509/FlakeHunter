@@ -11,11 +11,10 @@ fabric8 = "8.0.0"
 springdoc = "3.1.1"
 mapstruct = "1.6.3"
 opentelemetry-javaagent = "2.32.0"
-# The runner's JUnit extension runs inside *target* repos, which are on JUnit 5,
-# so it compiles against Jupiter 5 instead of the JUnit 6 that Spring Boot 4 brings.
-junit5-runner = "5.14.4"
 
 [libraries]
+# Non-Spring modules (runner/publisher) import the Boot BOM too, so Kafka and Jackson match the services.
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
 spring-cloud-bom = { module = "org.springframework.cloud:spring-cloud-dependencies", version.ref = "spring-cloud" }
 fabric8-bom = { module = "io.fabric8:kubernetes-client-bom", version.ref = "fabric8" }
 fabric8-client = { module = "io.fabric8:kubernetes-client" }
@@ -24,7 +23,6 @@ springdoc-webflux = { module = "org.springdoc:springdoc-openapi-starter-webflux-
 mapstruct = { module = "org.mapstruct:mapstruct", version.ref = "mapstruct" }
 mapstruct-processor = { module = "org.mapstruct:mapstruct-processor", version.ref = "mapstruct" }
 opentelemetry-javaagent = { module = "io.opentelemetry.javaagent:opentelemetry-javaagent", version.ref = "opentelemetry-javaagent" }
-junit5-runner-bom = { module = "org.junit:junit-bom", version.ref = "junit5-runner" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
