@@ -113,6 +113,15 @@ class HuntService {
         }
     }
 
+    /** ANALYZING → COMPLETED. shortcut: goes to DIAGNOSING / AWAITING_AI instead once agents exist (Phase 3). */
+    @Transactional
+    void completeAnalysis(UUID huntId, int findings) {
+        Hunt hunt = lock(huntId);
+        if (hunt.getStatus() != HuntStatus.ANALYZING) return; // cancelled or failed meanwhile; keep that outcome
+        hunt.moveTo(HuntStatus.COMPLETED);
+        emit(hunt, HuntStatus.ANALYZING, Map.of("findings", findings));
+    }
+
     private Hunt lock(UUID huntId) {
         return hunts.lockById(huntId).orElseThrow(() -> new IllegalStateException("No hunt " + huntId));
     }

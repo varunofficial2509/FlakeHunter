@@ -1,5 +1,6 @@
 package dev.flakehunter.orchestrator.hunt;
 
+import dev.flakehunter.events.AnalysisCompleted;
 import dev.flakehunter.events.EventEnvelope;
 import dev.flakehunter.events.RunCompleted;
 import dev.flakehunter.events.Topics;
@@ -11,17 +12,18 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Records each run's outcome as the runner reports it. */
+/** Moves hunts along as runners and result-aggregator report back (the saga's inputs). */
 @Component
-class RunCompletedListener {
+class HuntEventsListener {
 
-    private static final TypeReference<EventEnvelope<RunCompleted>> TYPE = new TypeReference<>() {};
+    private static final TypeReference<EventEnvelope<RunCompleted>> RUN = new TypeReference<>() {};
+    private static final TypeReference<EventEnvelope<AnalysisCompleted>> ANALYSIS = new TypeReference<>() {};
 
     private final HuntService hunts;
     private final JdbcClient jdbc;
     private final JsonMapper json;
 
-    RunCompletedListener(HuntService hunts, JdbcClient jdbc, JsonMapper json) {
+    HuntEventsListener(HuntService hunts, JdbcClient jdbc, JsonMapper json) {
         this.hunts = hunts;
         this.jdbc = jdbc;
         this.json = json;
@@ -31,10 +33,18 @@ class RunCompletedListener {
     @KafkaListener(topics = Topics.RUN_COMPLETED)
     @Transactional
     void onRunCompleted(String message) {
-        EventEnvelope<RunCompleted> event = json.readValue(message, TYPE);
+        EventEnvelope<RunCompleted> event = json.readValue(message, RUN);
         if (!firstTime(event.eventId())) return; // Kafka redelivered it (at-least-once)
         RunCompleted run = event.payload();
         hunts.finishRun(run.runId(), Run.Status.valueOf(run.status().name()));
+    }
+
+    @KafkaListener(topics = Topics.ANALYSIS_COMPLETED)
+    @Transactional
+    void onAnalysisCompleted(String message) {
+        EventEnvelope<AnalysisCompleted> event = json.readValue(message, ANALYSIS);
+        if (!firstTime(event.eventId())) return;
+        hunts.completeAnalysis(event.huntId(), event.payload().findings());
     }
 
     private boolean firstTime(UUID eventId) {

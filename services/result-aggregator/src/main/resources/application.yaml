@@ -1,6 +1,28 @@
 spring:
   application:
     name: result-aggregator
+  datasource:
+    # Local defaults match deploy/compose; override with SPRING_DATASOURCE_* env vars.
+    url: jdbc:postgresql://localhost:5432/flakehunter
+    username: flakehunter
+    password: flakehunter
+  flyway:
+    # This service owns only the "results" schema (tech doc section 7).
+    schemas: results
+    default-schema: results
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: result-aggregator
+      auto-offset-reset: earliest # a new group must not skip results sent before it started
+    producer:
+      # Tech doc section 6: a send counts only once every replica has it, and retries never duplicate.
+      acks: all
+      properties:
+        enable.idempotence: true
+  mvc:
+    problemdetails:
+      enabled: true # Errors as RFC 7807 problem details.
 
 server:
   port: 8083

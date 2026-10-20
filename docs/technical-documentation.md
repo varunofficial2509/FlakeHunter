@@ -52,7 +52,7 @@ Java owns the core platform, Python owns only the AI agents, and everything runs
 | Area              | Choice                                                                  | Why                                                       |
 | ----------------- | ----------------------------------------------------------------------- | --------------------------------------------------------- |
 | Core services     | Java 21, Spring Boot 3.x, Spring Cloud Gateway                          | Target-role stack; virtual threads for I/O-heavy services |
-| Stream processing | Kafka Streams (in result-aggregator)                                    | Windowed per-test statistics without a separate cluster   |
+| Stream processing | Plain Kafka consumers + SQL in result-aggregator (ADR 0005)             | Hunts are scored once at the end; Postgres holds the data |
 | Agent service     | Python 3.12, FastAPI, LangGraph                                         | Best agent tooling; a real reason for a polyglot boundary |
 | LLM               | Hosted APIs (Gemini / OpenAI), routed by task                           | Local models do not fit beside the cluster on 16 GB       |
 | Frontend          | React 18, TypeScript, Vite, TanStack Query                              | Live dashboard over SSE                                   |
@@ -133,7 +133,7 @@ Six deployable services plus a short-lived runner image. Each service owns its o
 | api-gateway             | Java (Spring Cloud Gateway) | Routing, auth, rate limits, SSE fan-out          | Requests                                      | Single entry point                      |
 | project-service         | Java                        | Projects, settings, GitHub webhooks, PR comments | Requests                                      | Integration and config, low load        |
 | hunt-orchestrator       | Java                        | Hunts, runs, experiments, K8s Jobs, AI switch    | Hunts in flight                               | Owns the saga and the K8s API           |
-| result-aggregator       | Java (Kafka Streams)        | Test results, flakiness scores, findings         | Kafka lag on `test.results`                   | High-volume stream, different scaling   |
+| result-aggregator       | Java                        | Test results, flakiness scores, findings         | Kafka lag on `test.results`                   | High-volume stream, different scaling   |
 | agent-service           | Python                      | Diagnoses, fix proposals, LLM usage              | Kafka lag on `finding.detected` (KEDA, min 0) | Different language, can be switched off |
 | web                     | React (static, Nginx)       | UI                                               | Requests                                      | Frontend                                |
 | test-runner (Job image) | Java + Maven + publisher    | Nothing persistent                               | One pod per run                               | Isolation of untrusted code             |
@@ -166,7 +166,7 @@ Six deployable services plus a short-lived runner image. Each service owns its o
 ### result-aggregator
 
 - Consumes `test.results` (high volume), idempotent on `(runId, testId)`.
-- Kafka Streams keyed by `huntId:testId`: counts outcomes per strategy, failure-message clusters.
+- Stores results in Postgres; counts outcomes per strategy and failure clusters with SQL (ADR 0005).
 - When all runs of a hunt complete, computes flakiness scores (section 9) and publishes `finding.detected` per flaky test, then `analysis.completed`.
 - `GET /api/findings?huntId=`, `GET /api/findings/{id}` (with evidence, diagnosis, fix, verification once available).
 - Consumes `diagnosis.completed`, `fix.proposed`, `fix.verified` to keep the finding view complete (CQRS-style read model).
@@ -478,7 +478,7 @@ One hunt should be traceable end to end in Grafana, any pod should be killable w
 | Failure                             | Behaviour                                                                                                                  |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Runner pod crashes or times out     | Run marked `FAILED`/`TIMED_OUT`; excluded from scoring; retried once if budget allows                                      |
-| result-aggregator restarts          | Kafka Streams resumes from committed offsets and state store changelog; inserts are idempotent                             |
+| result-aggregator restarts          | Consumers resume from committed offsets; inserts are idempotent; Analyzer picks up unanalyzed hunts                        |
 | hunt-orchestrator restarts mid-hunt | State in Postgres; reconciler loop compares DB runs with live Jobs and repairs                                             |
 | Kafka unavailable                   | Outbox rows accumulate; relay publishes when Kafka is back                                                                 |
 | agent-service killed (or AI off)    | Sessions checkpointed; unfinished findings re-consumed; hunt waits in `AWAITING_AI`                                        |
@@ -504,7 +504,7 @@ flakehunter/
 │   ├── api-gateway/            # Spring Cloud Gateway
 │   ├── project-service/        # Spring Boot
 │   ├── hunt-orchestrator/      # Spring Boot + fabric8
-│   ├── result-aggregator/      # Spring Boot + Kafka Streams
+│   ├── result-aggregator/      # Spring Boot, Kafka consumers + SQL scoring
 │   └── agent-service/          # Python, FastAPI, LangGraph
 ├── runner/
 │   ├── publisher/              # parses JUnit XML, publishes test.results + run.completed
@@ -551,7 +551,7 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 - [ ] Postgres, Kafka (KRaft), Compose file
 - [ ] project-service and hunt-orchestrator with Flyway, outbox relay, hunt state machine
 - [ ] Runner base images + publisher sending `test.results` and `run.completed`; remove `runner/junit-extension`
-- [ ] result-aggregator with Kafka Streams, scoring, `finding.detected`
+- [x] result-aggregator with scoring, `finding.detected`, `analysis.completed` (SQL, not Kafka Streams: ADR 0005)
 - [ ] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
 - [ ] Machine-aware preset options: start-hunt budget dropdowns, Admin Runner panel (memory, clear Maven cache), size presets in `deploy/` for Kafka/Postgres
 - [ ] Testcontainers integration tests for the event flow
@@ -614,7 +614,7 @@ The project is judged by one honest benchmark number and one live demo, not by f
 ### Interview talking points
 
 - Why each service is separate, and what would merge if traffic were small.
-- Exactly-once vs at-least-once: outbox, idempotent consumers, Kafka Streams state.
+- Exactly-once vs at-least-once: outbox, idempotent consumers.
 - Why KEDA on lag instead of CPU-based HPA.
 - The saga for a hunt and how the reconciler repairs drift between DB and live Jobs.
 - Agents that wait on real experiments: checkpointing and resuming across pods.
