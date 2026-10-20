@@ -31,6 +31,7 @@ class SecurityConfig {
                 .authorizeExchange(auth -> auth
                         .pathMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .pathMatchers("/actuator/health/**").permitAll() // Kubernetes probes
+                        .pathMatchers("/actuator/prometheus").permitAll() // in-cluster only: the ingress routes /api
                         .anyExchange().authenticated())
                 .oauth2ResourceServer(rs -> rs.jwt(Customizer.withDefaults()))
                 .build();

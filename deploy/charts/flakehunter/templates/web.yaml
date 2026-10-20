@@ -31,7 +31,7 @@ spec:
   ports:
     - port: 80
 ---
-# k3s ships Traefik as the ingress controller. /api goes to the gateway, the rest to the web app: one origin, no CORS.
+# k3s ships Traefik as the ingress controller. /api goes to the gateway, /grafana to Grafana, the rest to the web app: one origin, no CORS.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -44,6 +44,10 @@ spec:
             pathType: Prefix
             backend:
               service: { name: api-gateway, port: { number: 8080 } }
+          - path: /grafana
+            pathType: Prefix
+            backend:
+              service: { name: grafana, port: { number: 3000 } }
           - path: /
             pathType: Prefix
             backend:

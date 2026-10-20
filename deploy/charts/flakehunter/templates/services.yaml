@@ -7,12 +7,17 @@ metadata:
   name: {{ $name }}
   labels: { app: {{ $name }} }
 spec:
+  {{- if not $svc.autoscaled }}
   replicas: 1
+  {{- end }}{{/* else KEDA owns the count; setting it here would reset it on every helm upgrade */}}
   selector:
     matchLabels: { app: {{ $name }} }
   template:
     metadata:
       labels: { app: {{ $name }} }
+      annotations: # templates/prometheus.yaml scrapes pods that carry these
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
     spec:
       # Otherwise Kubernetes adds env vars like KAFKA_PORT for every Service, which images read as config.
       enableServiceLinks: false

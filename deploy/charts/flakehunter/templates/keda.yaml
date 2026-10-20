@@ -1,0 +1,25 @@
+{{- /*
+  KEDA watches result-aggregator's lag on test.results and sets its replica count through an HPA it creates.
+  Lag, not CPU: an aggregator waiting on Postgres is behind long before its CPU looks busy.
+*/}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: result-aggregator
+spec:
+  scaleTargetRef: { name: result-aggregator }
+  minReplicaCount: 1 # it also runs the Analyzer and the other listeners, so never 0
+  maxReplicaCount: {{ .Values.keda.maxReplicas }}
+  pollingInterval: 10
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 60 # Kubernetes waits 5 minutes by default; a hunt's burst is shorter
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: {{ include "flakehunter.kafka" . }}
+        consumerGroup: result-aggregator
+        topic: test.results
+        lagThreshold: "{{ .Values.keda.lagThreshold }}"

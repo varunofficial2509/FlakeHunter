@@ -26,6 +26,7 @@ services:
     memory: 512Mi
     database: true
     kafka: true
+    autoscaled: true # replicas come from KEDA (templates/keda.yaml)
   api-gateway:
     port: 8080
     memory: 512Mi
@@ -60,3 +61,18 @@ kafka:
   storage: 2Gi
   testResultsRetentionDays: 3
   eventsRetentionDays: 14
+
+# Scales result-aggregator on its consumer lag on test.results. KEDA itself is installed by up.sh.
+# Each replica takes 512Mi; raise maxReplicas on a bigger machine (test.results has 6 partitions, so 6 at most).
+keda:
+  maxReplicas: 2
+  lagThreshold: 5000 # unread results per replica before KEDA adds one
+
+prometheus:
+  image: "" # PROMETHEUS_IMAGE from deploy/images.env, set by up.sh
+  memory: 256Mi
+  retention: 1d
+
+grafana:
+  image: "" # GRAFANA_IMAGE from deploy/images.env, set by up.sh
+  memory: 384Mi # 256Mi was OOMKilled during its first-start database migrations

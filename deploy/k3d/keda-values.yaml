@@ -1,0 +1,11 @@
+# KEDA for the laptop cluster, installed by up.sh. Request = limit like our own pods; its defaults allow 1 GB each.
+resources:
+  operator:
+    requests: { memory: 128Mi, cpu: 50m }
+    limits: { memory: 128Mi } # uses ~50 MB with one ScaledObject
+  metricServer:
+    requests: { memory: 128Mi, cpu: 50m }
+    limits: { memory: 128Mi }
+# The webhook only validates ScaledObjects as they are applied; our chart is the one place that writes them.
+webhooks:
+  enabled: false
