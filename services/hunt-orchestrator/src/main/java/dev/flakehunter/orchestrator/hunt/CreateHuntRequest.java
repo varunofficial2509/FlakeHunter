@@ -1,11 +1,11 @@
 package dev.flakehunter.orchestrator.hunt;
 
+import dev.flakehunter.orchestrator.project.ProjectClient;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import java.util.UUID;
 
-// shortcut: projectId is not checked against project-service yet; add the lookup when the prepare step needs the repo URL.
 public record CreateHuntRequest(
         @NotNull UUID projectId,
         // The SHA is later passed to git, so accept only a full lowercase hex SHA.
@@ -14,7 +14,7 @@ public record CreateHuntRequest(
                 String commitSha,
         @Valid Budget budget) {
 
-    Hunt toHunt() {
-        return new Hunt(projectId, commitSha, budget == null ? Budget.DEFAULT : budget);
+    Hunt toHunt(ProjectClient.Project project) {
+        return new Hunt(projectId, commitSha, budget == null ? Budget.DEFAULT : budget, project);
     }
 }

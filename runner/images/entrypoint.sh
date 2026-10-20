@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # One hunt run: apply the strategy, run the already-compiled tests once, then publish the results.
 # Inputs (tech doc section 5): HUNT_ID, RUN_ID, STRATEGY, SEED, TEST_FILTER, TZ, KAFKA_BOOTSTRAP_SERVERS,
-# RUN_TIMEOUT_SECONDS. The prepared workspace is mounted at /workspace.
+# RUN_TIMEOUT_SECONDS. The prepared workspace is mounted read-only at /prepared (or directly at /workspace).
 set -uo pipefail # no -e: a failing test run is normal and must still be published
+
+# Parallel runs must not share target/: one run's files would leak into another and fake flakiness.
+if [[ -d /prepared ]]; then cp -a /prepared/. /workspace/; fi
 
 # Surefire 3.x is invoked explicitly: old target poms pin versions without a fixed random seed (ADR 0003).
 args=(-B -q org.apache.maven.plugins:maven-surefire-plugin:3.5.2:test

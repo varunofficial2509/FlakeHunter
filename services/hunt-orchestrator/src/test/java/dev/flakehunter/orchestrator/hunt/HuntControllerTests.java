@@ -2,18 +2,24 @@ package dev.flakehunter.orchestrator.hunt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 import dev.flakehunter.orchestrator.TestcontainersConfiguration;
 import dev.flakehunter.orchestrator.outbox.Outbox;
+import dev.flakehunter.orchestrator.project.ProjectClient;
+import dev.flakehunter.orchestrator.runner.DockerRunner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +28,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import org.springframework.transaction.IllegalTransactionStateException;
@@ -46,6 +53,19 @@ class HuntControllerTests {
 
     @Autowired
     Outbox outbox;
+
+    // project-service and Docker are outside this service; HuntExecutionTests covers what happens with them.
+    @MockitoBean
+    ProjectClient projects;
+
+    @MockitoBean
+    DockerRunner docker;
+
+    @BeforeEach
+    void projectExists() {
+        when(projects.find(any())).thenAnswer(call -> Optional.of(new ProjectClient.Project(
+                call.getArgument(0), "https://github.com/alibaba/fastjson", "MAVEN", 8, "-Djdk.version=1.8")));
+    }
 
     @Test
     void createsAHuntAndPublishesItsStatus() {
@@ -89,6 +109,17 @@ class HuntControllerTests {
         assertThat(result).hasStatus(HttpStatus.BAD_REQUEST);
         assertThat(result).hasContentType(MediaType.APPLICATION_PROBLEM_JSON);
         assertThat(result).bodyText().contains("projectId", "commitSha", "budget.maxRuns");
+    }
+
+    @Test
+    void unknownProjectIsRejected() {
+        when(projects.find(any())).thenReturn(Optional.empty());
+
+        MvcTestResult result = post("""
+                {"projectId": "%s", "commitSha": "%s"}""".formatted(UUID.randomUUID(), SHA));
+
+        assertThat(result).hasStatus(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(result).bodyText().contains("not found");
     }
 
     @Test
