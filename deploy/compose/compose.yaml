@@ -88,6 +88,10 @@ services:
         create verification.requested 3 $$DAYS_14
         create fix.verified           3 $$DAYS_14
         create ai.control             1 $$DAYS_14
+        # Dead letters of the topics consumed so far (tech doc section 11).
+        for t in hunt.status test.results run.completed analysis.completed; do
+          create "$$t.dlq" 1 $$DAYS_14
+        done
     restart: "no"
 
 volumes:
