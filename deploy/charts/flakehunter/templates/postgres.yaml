@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: postgres
+          image: {{ required "postgres.image" .Values.postgres.image }}
+          args: ["-c", "shared_buffers={{ .Values.postgres.sharedBuffers }}"]
+          env:
+            - name: POSTGRES_DB
+              value: flakehunter
+            - name: POSTGRES_USER
+              value: flakehunter
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: postgres-password } }
+            - name: PGDATA # a subfolder, so initdb finds an empty directory on any volume type
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          resources:
+            requests: { memory: {{ .Values.postgres.memory }}, cpu: 50m }
+            limits: { memory: {{ .Values.postgres.memory }} }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "flakehunter", "-d", "flakehunter"] }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: {{ .Values.postgres.storage }} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432

@@ -26,3 +26,20 @@ The orchestrator keeps that much of Docker's memory free when it offers runner s
 Postgres database, user and password are all `flakehunter` (local only). The Kafka topics from the tech doc (section 6) are created on startup.
 
 Stop with `down`. `down -v` also **deletes all data**.
+
+## Local Kubernetes (Phase 2)
+
+The whole platform (4 services, web app, Postgres, Kafka) on a one-node k3d cluster inside Docker. Needs k3d, Helm and kubectl. Stop the Compose stack first: both together don't fit in Docker's memory.
+
+```
+FLAKEHUNTER_ADMIN_PASSWORD=pick-one deploy/k3d/up.sh   # the password is only needed the first time
+```
+
+Then open http://localhost:8090 and log in as `admin`. Rerun `deploy/k3d/up.sh` after any code change: it rebuilds the images and rolls them out.
+
+| Task               | Command                                                                          |
+| ------------------ | -------------------------------------------------------------------------------- |
+| See the pods       | `kubectl --context k3d-flakehunter -n flakehunter get pods`                      |
+| Logs of a service  | `kubectl --context k3d-flakehunter -n flakehunter logs deploy/hunt-orchestrator` |
+| Pause (keeps data) | `k3d cluster stop flakehunter`, later `k3d cluster start flakehunter`            |
+| Delete everything  | `k3d cluster delete flakehunter` (also deletes the data and the registry)        |
