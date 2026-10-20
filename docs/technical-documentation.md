@@ -552,8 +552,8 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 - [x] project-service and hunt-orchestrator with Flyway, outbox relay, hunt state machine
 - [x] Runner base images + publisher sending `test.results` and `run.completed`; remove `runner/junit-extension`
 - [x] result-aggregator with scoring, `finding.detected`, `analysis.completed` (SQL, not Kafka Streams: ADR 0005)
-- [ ] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
-- [ ] Machine-aware preset options: start-hunt budget dropdowns, Admin Runner panel (memory, clear Maven cache), size presets in `deploy/` for Kafka/Postgres
+- [x] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
+- [x] Machine-aware preset options: start-hunt budget dropdowns, Admin Runner panel (memory, clear Maven cache), size presets in `deploy/` for Kafka/Postgres
 - [x] Testcontainers integration tests for the event flow
 
 **Exit:** start a hunt from the UI, runner containers run, a flaky test shows up as a finding.

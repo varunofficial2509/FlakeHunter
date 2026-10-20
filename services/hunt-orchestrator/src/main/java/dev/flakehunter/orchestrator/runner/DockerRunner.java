@@ -12,7 +12,11 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.stereotype.Component;
+import org.springframework.util.unit.DataSize;
+import org.springframework.web.ErrorResponseException;
 
 /**
  * Starts runner containers with the docker CLI (Phase 1, Docker Compose).
@@ -21,10 +25,28 @@ import org.springframework.stereotype.Component;
 @Component
 public class DockerRunner {
 
-    public record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs) {}
+    public record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs,
+            DataSize memory) {}
+
+    /** What Docker's VM offers: runners live inside it, so its memory, not the Mac's, is the limit. */
+    public record Machine(long memoryBytes, int cpus, long infraBytes) {
+
+        /** What the runners may use in total: Kafka and Postgres share Docker's VM with them. */
+        public long usableBytes() {
+            return memoryBytes - infraBytes;
+        }
+    }
+
+    /** Answered as a 503 problem detail by any controller. */
+    public static class DockerUnavailableException extends ErrorResponseException {
+        DockerUnavailableException(String message, Throwable cause) {
+            super(HttpStatus.SERVICE_UNAVAILABLE, ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Docker is not running; start it"), new IllegalStateException(message, cause));
+        }
+    }
 
     public record RunJob(UUID huntId, UUID runId, int jdk, String strategy, Long seed, String timezone,
-            String mavenArgs) {}
+            String mavenArgs, DataSize memory) {}
 
     /** Exit code we report when we had to kill a container; the same one {@code timeout} uses. */
     public static final int TIMED_OUT = 124;
@@ -45,12 +67,30 @@ public class DockerRunner {
         return props.imagePrefix() + jdk;
     }
 
+    public Machine machine() {
+        try {
+            Process process = new ProcessBuilder("docker", "info", "--format", "{{.MemTotal}} {{.NCPU}}")
+                    .redirectErrorStream(true).start();
+            String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (!process.waitFor(30, TimeUnit.SECONDS) || process.exitValue() != 0) {
+                throw new DockerUnavailableException("docker info failed: " + out, null);
+            }
+            String[] parts = out.split(" ");
+            return new Machine(Long.parseLong(parts[0]), Integer.parseInt(parts[1]), props.infraMemory().toBytes());
+        } catch (IOException | NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            throw new DockerUnavailableException("Could not read docker info; is Docker running?", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DockerUnavailableException("Interrupted while reading docker info", e);
+        }
+    }
+
     /** Clones the commit and compiles the tests into the hunt's volume. Returns the container's exit code. */
     public int prepare(PrepareJob job) {
         String name = "flakehunter-prepare-" + job.huntId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
                 "--network", props.network(),
-                "--memory", memoryLimit(), "--memory-swap", memoryLimit(),
+                "--memory", memoryLimit(job.memory()), "--memory-swap", memoryLimit(job.memory()),
                 "-v", volume(job.huntId()) + ":/workspace",
                 "-v", props.mavenCacheVolume() + ":/home/runner/.m2",
                 "-e", "REPO_URL=" + job.repoUrl(),
@@ -66,7 +106,7 @@ public class DockerRunner {
         String name = "flakehunter-run-" + job.runId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
                 "--network", props.network(),
-                "--memory", memoryLimit(), "--memory-swap", memoryLimit(),
+                "--memory", memoryLimit(job.memory()), "--memory-swap", memoryLimit(job.memory()),
                 // Read-only: each run copies the workspace, so runs can't change each other's files.
                 "-v", volume(job.huntId()) + ":/prepared:ro",
                 "-v", props.mavenCacheVolume() + ":/home/runner/.m2",
@@ -90,9 +130,15 @@ public class DockerRunner {
         exec(name, List.of("docker", "volume", "rm", "--force", volume(huntId)), Duration.ofMinutes(1));
     }
 
+    /** Empties the shared Maven repository. False if a container still uses it. */
+    public boolean removeMavenCache() {
+        return exec("remove-maven-cache", List.of("docker", "volume", "rm", "--force", props.mavenCacheVolume()),
+                Duration.ofMinutes(1)) == 0;
+    }
+
     /** Memory and swap set to the same value: no swap, so a test that leaks memory fails fast instead of crawling. */
-    private String memoryLimit() {
-        return props.memory().toMegabytes() + "m";
+    private static String memoryLimit(DataSize memory) {
+        return memory.toMegabytes() + "m";
     }
 
     private static String volume(UUID huntId) {

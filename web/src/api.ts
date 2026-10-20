@@ -39,7 +39,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       problem.errors,
     );
   }
-  return res.json();
+  return res.status === 204 ? (undefined as T) : res.json();
 }
 
 export const post = <T>(path: string, body: unknown) =>
@@ -69,8 +69,27 @@ export type Hunt = {
   commitSha: string;
   status: HuntStatus;
   failureReason: string | null;
-  budget: { maxRuns: number; maxParallelPods: number };
+  budget: Budget;
   createdAt: string;
+};
+
+export type Budget = { maxRuns: number; maxParallelPods: number };
+
+/** What this machine can run; the API rejects any other budget. */
+export type HuntOptions = {
+  maxRuns: number[];
+  maxParallelPods: number[];
+  defaults: Budget;
+};
+
+export type RunnerSettings = {
+  memoryMb: number;
+  totalMemoryMb: number;
+  memoryMbOptions: number[];
+  totalMemoryMbOptions: number[];
+  dockerMemoryMb: number;
+  dockerCpus: number;
+  infraMemoryMb: number;
 };
 
 export type Finding = {

@@ -8,7 +8,4 @@ public record Budget(
         // At least the 3 baseline runs (tech doc section 9); the cap keeps one hunt from filling a laptop.
         @Min(3) @Max(500) int maxRuns,
         @Min(1) @Max(8) int maxParallelPods) {
-
-    /** Local defaults from tech doc section 9. */
-    static final Budget DEFAULT = new Budget(40, 4);
 }

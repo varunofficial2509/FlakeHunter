@@ -102,7 +102,7 @@ class HuntExecutionTests {
     void failedPrepareFailsTheHuntWithAReason() {
         givenProject(8);
         when(docker.prepare(any())).thenReturn(1);
-        UUID huntId = start(Budget.DEFAULT);
+        UUID huntId = start(new Budget(40, 4));
 
         await().atMost(Duration.ofSeconds(10)).until(() -> status(huntId) == HuntStatus.FAILED);
         assertThat(hunts.findById(huntId).orElseThrow().getFailureReason()).contains("Preparing failed (exit 1)");
@@ -112,7 +112,7 @@ class HuntExecutionTests {
     @Test
     void projectWithoutJdkFailsBeforeCloning() {
         givenProject(null);
-        UUID huntId = start(Budget.DEFAULT);
+        UUID huntId = start(new Budget(40, 4));
 
         await().atMost(Duration.ofSeconds(10)).until(() -> status(huntId) == HuntStatus.FAILED);
         assertThat(hunts.findById(huntId).orElseThrow().getFailureReason()).contains("Set jdkVersion");
@@ -124,7 +124,7 @@ class HuntExecutionTests {
     }
 
     private UUID start(Budget budget) {
-        return huntService.start(new CreateHuntRequest(UUID.randomUUID(), SHA, budget)).orElseThrow().getId();
+        return huntService.start(new CreateHuntRequest(UUID.randomUUID(), SHA, budget), budget).orElseThrow().getId();
     }
 
     private HuntStatus status(UUID huntId) {

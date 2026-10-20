@@ -1,6 +1,7 @@
 # Local infrastructure for FlakeHunter: Postgres + Kafka (KRaft).
-# Run from the repo root (image tags come from deploy/images.env):
-#   docker compose --env-file deploy/images.env -f deploy/compose/compose.yaml up -d
+# Run from the repo root (image tags come from deploy/images.env, sizes from a deploy/presets file):
+#   docker compose --env-file deploy/images.env --env-file deploy/presets/medium.env -f deploy/compose/compose.yaml up -d
+# Without a preset, the medium values below apply.
 name: flakehunter
 
 services:
@@ -11,6 +12,9 @@ services:
       # Local-only defaults; override by exporting them in your shell. Never reuse outside your machine.
       POSTGRES_USER: ${POSTGRES_USER:-flakehunter}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flakehunter}
+    command:
+      ["postgres", "-c", "shared_buffers=${POSTGRES_SHARED_BUFFERS:-128MB}"]
+    mem_limit: ${POSTGRES_MEM_LIMIT:-256m}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -44,7 +48,9 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       # One local broker with little traffic; the default 1 GB heap takes memory the runners need.
-      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms512m -Xmx512m}
+    # Heap plus off-heap; the orchestrator keeps this much of Docker's VM free (FLAKEHUNTER_INFRA_MEMORY).
+    mem_limit: ${KAFKA_MEM_LIMIT:-768m}
     ports:
       - "127.0.0.1:9092:9092"
     volumes:
@@ -68,29 +74,33 @@ services:
     entrypoint: ["/bin/bash", "-ec"]
     command:
       - |
+        # Also sets retention on existing topics, so a new preset applies when kafka-init reruns.
         create() {
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
-            --topic "$$1" --partitions "$$2" --replication-factor 1 --config retention.ms="$$3"
+            --topic "$$1" --partitions "$$2" --replication-factor 1
+          /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:29092 --alter --entity-type topics \
+            --entity-name "$$1" --add-config retention.ms="$$3" > /dev/null
         }
-        DAYS_3=259200000
-        DAYS_14=1209600000
-        create hunt.requested         3 $$DAYS_14
-        create hunt.status            3 $$DAYS_14
-        create run.scheduled          3 $$DAYS_14
-        create test.results           6 $$DAYS_3
-        create run.completed          3 $$DAYS_14
-        create analysis.completed     3 $$DAYS_14
-        create finding.detected       6 $$DAYS_14
-        create experiment.requested   3 $$DAYS_14
-        create experiment.completed   3 $$DAYS_14
-        create diagnosis.completed    3 $$DAYS_14
-        create fix.proposed           3 $$DAYS_14
-        create verification.requested 3 $$DAYS_14
-        create fix.verified           3 $$DAYS_14
-        create ai.control             1 $$DAYS_14
+        DAY_MS=86400000
+        RESULTS=$$(( ${TEST_RESULTS_RETENTION_DAYS:-3} * DAY_MS ))
+        EVENTS=$$(( ${EVENTS_RETENTION_DAYS:-14} * DAY_MS ))
+        create hunt.requested         3 $$EVENTS
+        create hunt.status            3 $$EVENTS
+        create run.scheduled          3 $$EVENTS
+        create test.results           6 $$RESULTS
+        create run.completed          3 $$EVENTS
+        create analysis.completed     3 $$EVENTS
+        create finding.detected       6 $$EVENTS
+        create experiment.requested   3 $$EVENTS
+        create experiment.completed   3 $$EVENTS
+        create diagnosis.completed    3 $$EVENTS
+        create fix.proposed           3 $$EVENTS
+        create verification.requested 3 $$EVENTS
+        create fix.verified           3 $$EVENTS
+        create ai.control             1 $$EVENTS
         # Dead letters of the topics consumed so far (tech doc section 11).
         for t in hunt.status test.results run.completed analysis.completed; do
-          create "$$t.dlq" 1 $$DAYS_14
+          create "$$t.dlq" 1 $$EVENTS
         done
     restart: "no"
 

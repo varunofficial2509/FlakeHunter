@@ -14,7 +14,7 @@ public record CreateHuntRequest(
                 String commitSha,
         @Valid Budget budget) {
 
-    Hunt toHunt(ProjectClient.Project project) {
-        return new Hunt(projectId, commitSha, budget == null ? Budget.DEFAULT : budget, project);
+    Hunt toHunt(ProjectClient.Project project, Budget chosen) {
+        return new Hunt(projectId, commitSha, chosen, project);
     }
 }

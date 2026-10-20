@@ -44,6 +44,15 @@ test("a 401 clears the token and goes to the login page", async () => {
   expect(assign).toHaveBeenCalledWith("/login");
 });
 
+test("a 204 resolves without parsing a body", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+  );
+
+  await expect(api("/api/admin/runner/maven-cache")).resolves.toBeUndefined();
+});
+
 test("field errors from a problem detail reach the caller", async () => {
   const problem = {
     detail: "Invalid request content.",

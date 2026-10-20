@@ -48,6 +48,8 @@ flakehunter:
     # itself to the whole VM, and the VM's OOM killer may pick Kafka instead of the runner.
     memory: 1536MB # Maven and the Surefire fork each get ~25% as heap (~384 MB)
     total-memory: 6GB # so at most 4 runners at once, whatever maxParallelPods says
+    # Kafka + Postgres mem_limits of the deploy/presets file in use (small 768MB, medium 1GB, large 1536MB).
+    infra-memory: ${FLAKEHUNTER_INFRA_MEMORY:1GB}
 
 server:
   port: 8082

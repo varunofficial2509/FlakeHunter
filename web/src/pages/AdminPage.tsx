@@ -1,0 +1,104 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
+import { api, type RunnerSettings } from "../api";
+
+const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
+
+export function AdminPage() {
+  const queryClient = useQueryClient();
+  const runner = useQuery({
+    queryKey: ["admin-runner"],
+    queryFn: () => api<RunnerSettings>("/api/admin/runner"),
+  });
+  const save = useMutation({
+    mutationFn: (body: { memoryMb: number; totalMemoryMb: number }) =>
+      api<RunnerSettings>("/api/admin/runner", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["admin-runner"], data);
+      queryClient.invalidateQueries({ queryKey: ["hunt-options"] });
+    },
+  });
+  const clearCache = useMutation({
+    mutationFn: () =>
+      api<void>("/api/admin/runner/maven-cache", { method: "DELETE" }),
+  });
+  const [memory, setMemory] = useState<number>();
+
+  if (runner.error) return <p role="alert">{runner.error.message}</p>;
+  if (!runner.data) return <p>Loading…</p>;
+  const r = runner.data;
+  const perRunner = memory ?? r.memoryMb;
+
+  function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    save.mutate({
+      memoryMb: Number(form.get("memoryMb")),
+      totalMemoryMb: Number(form.get("totalMemoryMb")),
+    });
+  }
+
+  return (
+    <>
+      <h1>Admin: runners</h1>
+      <p>
+        Docker has {gb(r.dockerMemoryMb)} and {r.dockerCpus} CPUs;{" "}
+        {gb(r.infraMemoryMb)} of that is kept for Kafka and Postgres (set by the
+        deploy preset). Changes apply to the next hunt.
+      </p>
+
+      <form onSubmit={submit}>
+        <label>
+          Memory per runner container
+          <select
+            name="memoryMb"
+            defaultValue={r.memoryMb}
+            onChange={(e) => setMemory(Number(e.target.value))}
+          >
+            {r.memoryMbOptions.map((mb) => (
+              <option key={mb} value={mb}>
+                {gb(mb)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Total for all runners of a hunt
+          <select name="totalMemoryMb" defaultValue={r.totalMemoryMb}>
+            {r.totalMemoryMbOptions
+              .filter((mb) => mb >= perRunner)
+              .map((mb) => (
+                <option key={mb} value={mb}>
+                  {gb(mb)} ({Math.floor(mb / perRunner)} at once)
+                </option>
+              ))}
+          </select>
+        </label>
+        {save.error && <p role="alert">{save.error.message}</p>}
+        {save.isSuccess && <p>Saved.</p>}
+        <button type="submit" disabled={save.isPending}>
+          Save
+        </button>
+      </form>
+
+      <h2>Maven cache</h2>
+      <p>
+        Dependencies downloaded by earlier hunts. Clear it if it grows too big
+        or a download got corrupted; the next hunt downloads them again.
+      </p>
+      <button
+        onClick={() =>
+          confirm("Delete the Maven cache?") && clearCache.mutate()
+        }
+        disabled={clearCache.isPending}
+      >
+        Clear Maven cache
+      </button>
+      {clearCache.error && <p role="alert">{clearCache.error.message}</p>}
+      {clearCache.isSuccess && <p>Cleared.</p>}
+    </>
+  );
+}
