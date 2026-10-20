@@ -22,5 +22,6 @@ include(
     "services:project-service",
     "services:hunt-orchestrator",
     "services:result-aggregator",
-    "runner:junit-extension",
+    "libs:events",
+    "runner:publisher",
 )

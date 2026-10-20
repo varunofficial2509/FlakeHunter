@@ -23,9 +23,9 @@ SUREFIRE = "org.apache.maven.plugins:maven-surefire-plugin:3.5.2:test"
 
 def default_image():
     for line in (ROOT / "deploy" / "images.env").read_text().splitlines():
-        if line.startswith("MAVEN_RUNNER_IMAGE="):
+        if line.startswith("MAVEN_JDK21_IMAGE="):
             return line.split("=", 1)[1].strip()
-    sys.exit("MAVEN_RUNNER_IMAGE missing from deploy/images.env")
+    sys.exit("MAVEN_JDK21_IMAGE missing from deploy/images.env")
 
 
 def checkout(url, sha):
