@@ -96,6 +96,25 @@ class SurefireReportsTests {
     }
 
     @Test
+    void halfWrittenReportKeepsTheCasesBeforeTheCut() throws Exception {
+        String cut = OTHER_TESTS.substring(0, OTHER_TESTS.indexOf("<testcase name=\"blowsUp\"") + 20);
+        write("target/surefire-reports/TEST-com.acme.OtherTest.xml", cut, 1000);
+
+        assertThat(SurefireReports.read(workspace)).extracting(SurefireReports.Case::testId)
+                .containsExactly("com.acme.OtherTest#passes");
+    }
+
+    @Test
+    void hugeSystemOutIsSkipped() throws Exception {
+        String noisy = OTHER_TESTS.replace("time=\"1,234.5\"/>",
+                "time=\"1\"><system-out><![CDATA[" + "log line\n".repeat(500_000) + "]]></system-out></testcase>");
+        write("target/surefire-reports/TEST-com.acme.OtherTest.xml", noisy, 1000);
+
+        assertThat(SurefireReports.read(workspace)).extracting(SurefireReports.Case::status)
+                .containsExactly(Status.PASSED, Status.ERROR);
+    }
+
+    @Test
     void noReportsMeansNoCases() {
         assertThat(SurefireReports.read(workspace)).isEmpty();
     }

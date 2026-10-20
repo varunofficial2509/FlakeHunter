@@ -2,6 +2,7 @@ package dev.flakehunter.runner.publisher;
 
 import dev.flakehunter.events.TestResult.Status;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,15 +16,16 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 
-/** Reads Surefire's TEST-*.xml reports (the format is the same for JUnit 4 and 5). */
+/**
+ * Reads Surefire's TEST-*.xml reports (the format is the same for JUnit 4 and 5).
+ * Streams them (StAX) instead of loading each file: a test that logs a lot makes a huge {@code <system-out>},
+ * which is skipped without ever being held in memory.
+ */
 final class SurefireReports {
 
     /** One test case as found in the reports, in the order the tests ran. */
@@ -31,7 +33,17 @@ final class SurefireReports {
 
     // Kafka's default max message is 1 MB; long messages belong in object storage later (tech doc section 7).
     static final int MAX_MESSAGE_CHARS = 2000;
+    // The hash only uses the top frames, so the rest of a long stack trace is never kept.
+    private static final int MAX_TRACE_CHARS = 16_000;
     private static final int HASHED_FRAMES = 10;
+
+    private static final XMLInputFactory XML = XMLInputFactory.newFactory();
+
+    static {
+        // The repository under test controls test names and messages, so the XML is untrusted: no DTDs (XXE).
+        XML.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        XML.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+    }
 
     private SurefireReports() {}
 
@@ -48,39 +60,71 @@ final class SurefireReports {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        DocumentBuilder parser = safeParser();
         List<Case> cases = new ArrayList<>();
         for (Path file : files) {
-            try {
-                NodeList testcases = parser.parse(file.toFile()).getElementsByTagName("testcase");
-                for (int i = 0; i < testcases.getLength(); i++) {
-                    cases.add(toCase((Element) testcases.item(i)));
-                }
-            } catch (SAXException | IOException e) {
-                // A half-written report (killed mid-write) must not hide the rest of the results.
-                System.err.println("Skipping unreadable report " + file + ": " + e.getMessage());
+            try (InputStream in = Files.newInputStream(file)) {
+                readFile(XML.createXMLStreamReader(in), cases);
+            } catch (XMLStreamException | IOException e) {
+                // A half-written report (killed mid-write) keeps the cases read so far and must not hide the rest.
+                System.err.println("Stopped reading report " + file + ": " + e.getMessage());
             }
         }
         return cases;
     }
 
-    private static Case toCase(Element testcase) {
-        String testId = testcase.getAttribute("classname") + "#" + testcase.getAttribute("name");
-        long durationMs = Math.round(parseSeconds(testcase.getAttribute("time")) * 1000);
-        Element problem = firstChild(testcase, "failure");
-        Status status = Status.FAILED;
-        if (problem == null) {
-            problem = firstChild(testcase, "error");
-            status = Status.ERROR;
+    private static void readFile(XMLStreamReader xml, List<Case> cases) throws XMLStreamException {
+        String testId = null;
+        long durationMs = 0;
+        Status status = null;
+        String message = null;
+        String type = null;
+        StringBuilder trace = null; // non-null only while inside <failure> or <error>
+        String traceText = null;
+        while (xml.hasNext()) {
+            switch (xml.next()) {
+                case XMLStreamConstants.START_ELEMENT -> {
+                    String tag = xml.getLocalName();
+                    if (tag.equals("testcase")) {
+                        testId = attr(xml, "classname") + "#" + attr(xml, "name");
+                        durationMs = Math.round(parseSeconds(attr(xml, "time")) * 1000);
+                        status = Status.PASSED;
+                        message = type = traceText = null;
+                    } else if (testId != null && status == Status.PASSED) { // the first outcome element wins
+                        switch (tag) {
+                            case "failure", "error" -> {
+                                status = tag.equals("failure") ? Status.FAILED : Status.ERROR;
+                                message = attr(xml, "message");
+                                type = attr(xml, "type");
+                                trace = new StringBuilder();
+                            }
+                            case "skipped" -> status = Status.SKIPPED;
+                            default -> {} // system-out, properties, …: ignored
+                        }
+                    }
+                }
+                case XMLStreamConstants.CHARACTERS, XMLStreamConstants.CDATA -> {
+                    if (trace != null && trace.length() < MAX_TRACE_CHARS) trace.append(xml.getText());
+                }
+                case XMLStreamConstants.END_ELEMENT -> {
+                    String tag = xml.getLocalName();
+                    if (trace != null && (tag.equals("failure") || tag.equals("error"))) {
+                        traceText = trace.toString();
+                        trace = null;
+                    } else if (tag.equals("testcase") && testId != null) {
+                        cases.add(toCase(testId, status, durationMs, message, type, traceText));
+                        testId = null;
+                    }
+                }
+                default -> {}
+            }
         }
-        if (problem == null) {
-            status = firstChild(testcase, "skipped") != null ? Status.SKIPPED : Status.PASSED;
-            return new Case(testId, status, durationMs, null, null);
-        }
-        String message = problem.getAttribute("message");
+    }
+
+    private static Case toCase(String testId, Status status, long durationMs, String message, String type,
+            String trace) {
+        if (status != Status.FAILED && status != Status.ERROR) return new Case(testId, status, durationMs, null, null);
         if (message.length() > MAX_MESSAGE_CHARS) message = message.substring(0, MAX_MESSAGE_CHARS);
-        return new Case(testId, status, durationMs, message, stackHash(problem.getAttribute("type"),
-                problem.getTextContent()));
+        return new Case(testId, status, durationMs, message, stackHash(type, trace == null ? "" : trace));
     }
 
     /**
@@ -104,18 +148,9 @@ final class SurefireReports {
         }
     }
 
-    // The repository under test controls test names and messages, so the XML is untrusted: no DTDs (XXE).
-    private static DocumentBuilder safeParser() {
-        try {
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            factory.setXIncludeAware(false);
-            factory.setExpandEntityReferences(false);
-            return factory.newDocumentBuilder();
-        } catch (ParserConfigurationException e) {
-            throw new IllegalStateException(e);
-        }
+    private static String attr(XMLStreamReader xml, String name) {
+        String value = xml.getAttributeValue(null, name);
+        return value == null ? "" : value;
     }
 
     // Older Surefire versions format large times with a thousands separator ("1,234.5").
@@ -125,11 +160,6 @@ final class SurefireReports {
         } catch (NumberFormatException e) {
             return 0;
         }
-    }
-
-    private static Element firstChild(Element parent, String tag) {
-        NodeList children = parent.getElementsByTagName(tag);
-        return children.getLength() == 0 ? null : (Element) children.item(0);
     }
 
     private static FileTime modifiedTime(Path p) {

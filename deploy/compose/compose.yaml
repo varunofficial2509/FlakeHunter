@@ -43,6 +43,8 @@ services:
       # Topics are created explicitly by kafka-init, so a typo fails loudly.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # One local broker with little traffic; the default 1 GB heap takes memory the runners need.
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
     ports:
       - "127.0.0.1:9092:9092"
     volumes:

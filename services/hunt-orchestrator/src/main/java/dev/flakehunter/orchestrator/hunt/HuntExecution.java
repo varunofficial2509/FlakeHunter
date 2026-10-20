@@ -1,6 +1,7 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import dev.flakehunter.orchestrator.runner.DockerRunner;
+import dev.flakehunter.orchestrator.runner.RunnerProperties;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -13,7 +14,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
  * Drives one hunt in the background: prepare once, then run every planned run, at most maxParallelPods at a
- * time. Run results arrive separately, through RunCompletedListener.
+ * time. Run results arrive separately, through HuntEventsListener.
  * shortcut: an orchestrator restart abandons hunts in PREPARING or RUNNING; the Phase 2 reconciler repairs them.
  */
 @Component
@@ -23,10 +24,12 @@ class HuntExecution {
 
     private final HuntService hunts;
     private final DockerRunner docker;
+    private final RunnerProperties limits;
 
-    HuntExecution(HuntService hunts, DockerRunner docker) {
+    HuntExecution(HuntService hunts, DockerRunner docker, RunnerProperties limits) {
         this.hunts = hunts;
         this.docker = docker;
+        this.limits = limits;
     }
 
     // After commit: the background work must never start for a hunt whose transaction rolled back.
@@ -55,16 +58,29 @@ class HuntExecution {
         int exit = docker.prepare(new DockerRunner.PrepareJob(
                 huntId, jdk, hunt.getRepoUrl(), hunt.getCommitSha(), hunt.getMavenArgs()));
         if (exit != 0) {
-            hunts.fail(huntId, (exit == DockerRunner.TIMED_OUT ? "Preparing timed out" : "Preparing failed (exit " + exit + ")")
-                    + ": clone or test-compile did not succeed. Check the commit SHA, jdkVersion and testCommand.");
+            hunts.fail(huntId, switch (exit) {
+                case DockerRunner.TIMED_OUT -> "Preparing timed out";
+                case DockerRunner.KILLED -> "Preparing ran out of memory (limit " + limits.memory().toMegabytes() + " MB)";
+                default -> "Preparing failed (exit " + exit + "): clone or test-compile did not succeed."
+                        + " Check the commit SHA, jdkVersion and testCommand.";
+            });
             return;
         }
         launchAll(hunt, hunts.startRuns(huntId, docker.image(jdk)));
     }
 
-    /** Starts every run, never more than maxParallelPods at once, and returns when all containers exited. */
+    /**
+     * Starts every run, never more than maxParallelPods at once (and never more than fit in the runners' total
+     * memory), and returns when all containers exited.
+     * shortcut: the memory cap is per hunt; two hunts at once can use twice the total. Fine for one user.
+     */
     private void launchAll(Hunt hunt, List<Run> runs) throws InterruptedException {
-        Semaphore slots = new Semaphore(hunt.getBudget().maxParallelPods());
+        int parallel = Math.min(hunt.getBudget().maxParallelPods(), limits.maxContainers());
+        if (parallel < hunt.getBudget().maxParallelPods()) {
+            log.info("Hunt {}: running {} containers at once, not {}: that is all the runner memory allows",
+                    hunt.getId(), parallel, hunt.getBudget().maxParallelPods());
+        }
+        Semaphore slots = new Semaphore(parallel);
         List<Thread> containers = new ArrayList<>();
         for (Run run : runs) {
             slots.acquire();
@@ -75,6 +91,10 @@ class HuntExecution {
                             run.getStrategy().name(), run.getSeed(), run.getTimezone(), hunt.getMavenArgs()));
                     // Exit 0 means the publisher delivered run.completed, and the listener records it.
                     // Anything else means no report is coming, so don't let the hunt wait for it.
+                    if (exit == DockerRunner.KILLED) {
+                        log.warn("Run {} was killed, most likely by its {} MB memory limit", run.getId(),
+                                limits.memory().toMegabytes());
+                    }
                     if (exit != 0) {
                         log.warn("Run {} exited {} without reporting", run.getId(), exit);
                         hunts.finishRun(run.getId(),
