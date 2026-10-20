@@ -131,6 +131,12 @@ class HuntControllerTests {
     }
 
     @Test
+    void exposesHuntGaugesToPrometheus() {
+        assertThat(mvc.get().uri("/actuator/prometheus")).hasStatusOk().bodyText()
+                .contains("flakehunter_hunts{status=\"RUNNING\"}").contains("flakehunter_runs_active");
+    }
+
+    @Test
     void rejectsInvalidInputAsProblemDetail() {
         MvcTestResult result = post("""
                 {"commitSha": "--upload-pack=x", "budget": {"maxRuns": 2, "maxParallelPods": 1}}""");

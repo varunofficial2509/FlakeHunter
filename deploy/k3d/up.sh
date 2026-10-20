@@ -46,8 +46,13 @@ if ! kubectl --context "$CONTEXT" -n "$NS" get secret flakehunter-secrets >/dev/
     --from-literal=postgres-password="$(openssl rand -hex 24)"
 fi
 
+# KEDA first: our chart's ScaledObject needs its CRDs.
+helm upgrade --install keda keda --repo https://kedacore.github.io/charts --version "$KEDA_CHART_VERSION" \
+  --kube-context "$CONTEXT" -n keda --create-namespace --wait -f deploy/k3d/keda-values.yaml
+
 helm upgrade --install flakehunter deploy/charts/flakehunter --kube-context "$CONTEXT" -n "$NS" \
   --wait --timeout 10m \
-  --set image.tag="$TAG" --set postgres.image="$POSTGRES_IMAGE" --set kafka.image="$KAFKA_IMAGE"
+  --set image.tag="$TAG" --set postgres.image="$POSTGRES_IMAGE" --set kafka.image="$KAFKA_IMAGE" \
+  --set prometheus.image="$PROMETHEUS_IMAGE" --set grafana.image="$GRAFANA_IMAGE"
 
-echo "FlakeHunter is up: http://localhost:8090 (user admin)"
+echo "FlakeHunter is up: http://localhost:8090 (user admin), Grafana: http://localhost:8090/grafana"

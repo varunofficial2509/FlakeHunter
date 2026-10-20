@@ -18,5 +18,7 @@ interface RunRepository extends JpaRepository<Run, UUID> {
 
     List<Run> findByHuntIdAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
 
+    long countByStatus(Run.Status status);
+
     long countByHuntIdAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
 }

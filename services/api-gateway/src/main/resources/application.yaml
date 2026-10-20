@@ -30,3 +30,9 @@ flakehunter:
 
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus # Prometheus scrapes this inside the cluster; the ingress only routes /api

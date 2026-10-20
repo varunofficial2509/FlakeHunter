@@ -64,6 +64,8 @@ class GatewayAuthTests {
     @Test
     void rejectsRequestsWithoutAToken() {
         client.get().uri("/api/projects").exchange().expectStatus().isUnauthorized();
+        // Probes and Prometheus can't log in; the ingress keeps /actuator out of reach from outside.
+        client.get().uri("/actuator/prometheus").exchange().expectStatus().isOk();
     }
 
     @Test

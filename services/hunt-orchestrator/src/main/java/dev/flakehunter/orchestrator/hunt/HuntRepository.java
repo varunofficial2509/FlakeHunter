@@ -22,5 +22,7 @@ interface HuntRepository extends JpaRepository<Hunt, UUID> {
     // shortcut: newest 20 only, no paging; add Pageable when a project has more hunts than fit on one screen.
     List<Hunt> findTop20ByProjectIdOrderByCreatedAtDesc(UUID projectId);
 
+    long countByStatus(HuntStatus status);
+
     List<Hunt> findByStatusIn(Collection<HuntStatus> statuses);
 }

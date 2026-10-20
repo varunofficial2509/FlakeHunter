@@ -436,7 +436,7 @@ Three environments share one set of Helm charts: Docker Compose for fast local d
 | api-gateway       | Deployment                             | 1                | Ingress (Traefik in k3d)                                                                   |
 | project-service   | Deployment                             | 1                |                                                                                            |
 | hunt-orchestrator | Deployment                             | 1 (2 in cloud)   | ServiceAccount with RBAC to create Jobs in `flakehunter-runners` and scale `agent-service` |
-| result-aggregator | Deployment                             | 1, KEDA up to 3  | Scaled on `test.results` lag                                                               |
+| result-aggregator | Deployment                             | 1, KEDA up to 2  | Scaled on `test.results` lag                                                               |
 | agent-service     | Deployment                             | KEDA 0–3         | Scaled on `finding.detected` lag; paused by kill switch                                    |
 | web               | Deployment                             | 1                | Nginx static                                                                               |
 | test-runner       | Job                                    | per run          | `backoffLimit: 0`, `activeDeadlineSeconds`, `ttlSecondsAfterFinished: 300`                 |
@@ -560,11 +560,11 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 ### Phase 2 — Kubernetes (17 Nov – 7 Dec)
 
-- [ ] k3d cluster with local registry; Helm charts for every service + umbrella
-- [ ] Orchestrator creates runner Jobs with fabric8; RBAC, quotas, NetworkPolicy
+- [x] k3d cluster with local registry; Helm charts for every service + umbrella
+- [x] Orchestrator creates runner Jobs with fabric8; RBAC, quotas, NetworkPolicy
 - [x] Reconciler for DB vs live Jobs (on startup: resumes CREATED/PREPARING/RUNNING hunts, reattaches to their Jobs by name)
-- [ ] KEDA for result-aggregator on lag
-- [ ] Prometheus + Grafana with platform dashboard
+- [x] KEDA for result-aggregator on lag (1 to `keda.maxReplicas`, default 2 for the laptop)
+- [x] Prometheus + Grafana with platform dashboard
 
 **Exit:** a hunt fans out runner pods in the cluster and pods clean up after themselves; killing any platform pod mid-hunt does not lose the hunt.
 
