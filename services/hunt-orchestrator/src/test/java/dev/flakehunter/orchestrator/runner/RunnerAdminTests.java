@@ -33,12 +33,12 @@ class RunnerAdminTests {
     JdbcClient jdbc;
 
     @MockitoBean
-    DockerRunner docker;
+    Runner runners;
 
     @BeforeEach
     void dockerHas8GbAnd10Cpus() {
-        when(docker.machine()).thenReturn(new DockerRunner.Machine(8L << 30, 10, 1L << 30));
-        when(docker.removeMavenCache()).thenReturn(true);
+        when(runners.machine()).thenReturn(new Runner.Machine(8L << 30, 10, 1L << 30));
+        when(runners.removeMavenCache()).thenReturn(true);
     }
 
     @AfterEach
@@ -73,13 +73,13 @@ class RunnerAdminTests {
                 .params(UUID.randomUUID(), UUID.randomUUID()).update();
 
         assertThat(mvc.delete().uri("/api/admin/runner/maven-cache")).hasStatus(HttpStatus.CONFLICT);
-        verify(docker, never()).removeMavenCache();
+        verify(runners, never()).removeMavenCache();
     }
 
     @Test
     void clearsTheMavenCacheWhenIdle() {
         assertThat(mvc.delete().uri("/api/admin/runner/maven-cache")).hasStatus(HttpStatus.NO_CONTENT);
-        verify(docker).removeMavenCache();
+        verify(runners).removeMavenCache();
     }
 
     private MvcTestResult put(String body) {

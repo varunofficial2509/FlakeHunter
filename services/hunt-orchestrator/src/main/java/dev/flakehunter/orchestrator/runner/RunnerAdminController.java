@@ -1,6 +1,6 @@
 package dev.flakehunter.orchestrator.runner;
 
-import dev.flakehunter.orchestrator.runner.DockerRunner.Machine;
+import dev.flakehunter.orchestrator.runner.Runner.Machine;
 import dev.flakehunter.orchestrator.runner.RunnerSettings.Limits;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -32,24 +32,24 @@ class RunnerAdminController {
     private static final long MB = 1024 * 1024;
     private static final List<Long> MEMORY_MB = List.of(1024L, 1536L, 2048L, 3072L);
 
-    private final DockerRunner docker;
+    private final Runner runners;
     private final RunnerSettings settings;
     private final JdbcClient jdbc;
 
-    RunnerAdminController(DockerRunner docker, RunnerSettings settings, JdbcClient jdbc) {
-        this.docker = docker;
+    RunnerAdminController(Runner runners, RunnerSettings settings, JdbcClient jdbc) {
+        this.runners = runners;
         this.settings = settings;
         this.jdbc = jdbc;
     }
 
     @GetMapping
     RunnerView get() {
-        return view(docker.machine(), settings.current());
+        return view(runners.machine(), settings.current());
     }
 
     @PutMapping
     ResponseEntity<?> update(@Valid @RequestBody UpdateRunner request) {
-        Machine machine = docker.machine();
+        Machine machine = runners.machine();
         RunnerView options = view(machine, settings.current());
         if (!options.memoryMbOptions().contains(request.memoryMb())
                 || !options.totalMemoryMbOptions().contains(request.totalMemoryMb())
@@ -72,7 +72,7 @@ class RunnerAdminController {
         boolean busy = jdbc.sql("SELECT exists(SELECT 1 FROM hunt.hunts WHERE status IN ('CREATED', 'PREPARING',"
                 + " 'RUNNING'))").query(Boolean.class).single();
         if (busy) return conflict("A hunt is running; clear the cache once it finishes");
-        if (!docker.removeMavenCache()) return conflict("A container still uses the Maven cache; try again shortly");
+        if (!runners.removeMavenCache()) return conflict("A container still uses the Maven cache; try again shortly");
         return ResponseEntity.noContent().build();
     }
 

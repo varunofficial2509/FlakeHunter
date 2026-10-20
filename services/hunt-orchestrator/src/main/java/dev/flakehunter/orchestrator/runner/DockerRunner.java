@@ -12,50 +12,16 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
-import org.springframework.web.ErrorResponseException;
 
-/**
- * Starts runner containers with the docker CLI (Phase 1, Docker Compose).
- * shortcut: Docker only; Phase 2 replaces this class with Kubernetes Jobs created through fabric8.
- */
+/** Starts runner containers with the docker CLI (Docker Compose). In the cluster, KubernetesRunner does this. */
 @Component
-public class DockerRunner {
-
-    public record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs,
-            DataSize memory) {}
-
-    /** What Docker's VM offers: runners live inside it, so its memory, not the Mac's, is the limit. */
-    public record Machine(long memoryBytes, int cpus, long infraBytes) {
-
-        /** What the runners may use in total: Kafka and Postgres share Docker's VM with them. */
-        public long usableBytes() {
-            return memoryBytes - infraBytes;
-        }
-    }
-
-    /** Answered as a 503 problem detail by any controller. */
-    public static class DockerUnavailableException extends ErrorResponseException {
-        DockerUnavailableException(String message, Throwable cause) {
-            super(HttpStatus.SERVICE_UNAVAILABLE, ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
-                    "Docker is not running; start it"), new IllegalStateException(message, cause));
-        }
-    }
-
-    public record RunJob(UUID huntId, UUID runId, int jdk, String strategy, Long seed, String timezone,
-            String mavenArgs, DataSize memory) {}
-
-    /** Exit code we report when we had to kill a container; the same one {@code timeout} uses. */
-    public static final int TIMED_OUT = 124;
-    /** 128 + SIGKILL: what a container exits with when it hits its memory limit. */
-    public static final int KILLED = 137;
+@ConditionalOnProperty(name = "flakehunter.runner.platform", havingValue = "docker", matchIfMissing = true)
+public class DockerRunner implements Runner {
 
     private static final Logger log = LoggerFactory.getLogger(DockerRunner.class);
-    // The run script stops the tests at run-timeout; this margin lets it still publish before we kill it.
-    private static final Duration PUBLISH_MARGIN = Duration.ofMinutes(2);
 
     private final RunnerProperties props;
 
@@ -63,29 +29,31 @@ public class DockerRunner {
         this.props = props;
     }
 
+    @Override
     public String image(int jdk) {
         return props.imagePrefix() + jdk;
     }
 
+    @Override
     public Machine machine() {
         try {
             Process process = new ProcessBuilder("docker", "info", "--format", "{{.MemTotal}} {{.NCPU}}")
                     .redirectErrorStream(true).start();
             String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             if (!process.waitFor(30, TimeUnit.SECONDS) || process.exitValue() != 0) {
-                throw new DockerUnavailableException("docker info failed: " + out, null);
+                throw unavailable("docker info failed: " + out, null);
             }
             String[] parts = out.split(" ");
             return new Machine(Long.parseLong(parts[0]), Integer.parseInt(parts[1]), props.infraMemory().toBytes());
         } catch (IOException | NumberFormatException | ArrayIndexOutOfBoundsException e) {
-            throw new DockerUnavailableException("Could not read docker info; is Docker running?", e);
+            throw unavailable("Could not read docker info; is Docker running?", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new DockerUnavailableException("Interrupted while reading docker info", e);
+            throw unavailable("Interrupted while reading docker info", e);
         }
     }
 
-    /** Clones the commit and compiles the tests into the hunt's volume. Returns the container's exit code. */
+    @Override
     public int prepare(PrepareJob job) {
         String name = "flakehunter-prepare-" + job.huntId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
@@ -101,7 +69,7 @@ public class DockerRunner {
         return exec(name, cmd, props.prepareTimeout());
     }
 
-    /** Runs the tests once and publishes the results to Kafka. Returns the container's exit code. */
+    @Override
     public int run(RunJob job) {
         String name = "flakehunter-run-" + job.runId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
@@ -124,16 +92,20 @@ public class DockerRunner {
         return exec(name, cmd, props.runTimeout().plus(PUBLISH_MARGIN));
     }
 
-    /** Deletes the hunt's prepared workspace once no container uses it any more. */
+    @Override
     public void removeVolume(UUID huntId) {
         String name = "remove-" + volume(huntId);
         exec(name, List.of("docker", "volume", "rm", "--force", volume(huntId)), Duration.ofMinutes(1));
     }
 
-    /** Empties the shared Maven repository. False if a container still uses it. */
+    @Override
     public boolean removeMavenCache() {
         return exec("remove-maven-cache", List.of("docker", "volume", "rm", "--force", props.mavenCacheVolume()),
                 Duration.ofMinutes(1)) == 0;
+    }
+
+    private static RunnerUnavailableException unavailable(String message, Throwable cause) {
+        return new RunnerUnavailableException("Docker is not running; start it", message, cause);
     }
 
     /** Memory and swap set to the same value: no swap, so a test that leaks memory fails fast instead of crawling. */

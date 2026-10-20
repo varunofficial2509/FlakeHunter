@@ -1,6 +1,6 @@
 package dev.flakehunter.orchestrator.hunt;
 
-import dev.flakehunter.orchestrator.runner.DockerRunner.Machine;
+import dev.flakehunter.orchestrator.runner.Runner.Machine;
 import dev.flakehunter.orchestrator.runner.RunnerSettings.Limits;
 import java.util.List;
 import java.util.stream.IntStream;

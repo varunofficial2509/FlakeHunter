@@ -36,6 +36,9 @@ spring:
 flakehunter:
   project-service-url: http://localhost:8081
   runner:
+    # docker (Compose) or kubernetes (the Helm chart sets it, with the namespace and registry below).
+    platform: docker
+    namespace: flakehunter-runners
     # Built by runner/images/build.sh; the JDK number is appended.
     image-prefix: flakehunter/runner:jdk
     # Runner containers join the Compose network and reach Kafka by its internal name.

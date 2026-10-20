@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.random.RandomGenerator;
+import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -83,7 +83,8 @@ class HuntService {
     @Transactional
     List<Run> startRuns(UUID huntId, String image) {
         Hunt hunt = lock(huntId);
-        List<Run> planned = runs.saveAll(RunPlanner.plan(huntId, hunt.getBudget(), RandomGenerator.getDefault()));
+        List<Run> planned = runs.saveAll(RunPlanner.plan(huntId, hunt.getBudget(),
+                ThreadLocalRandom.current())); // getDefault() needs jdk.random, which the JRE image lacks
         HuntStatus previous = hunt.getStatus();
         hunt.useImage(image);
         hunt.moveTo(HuntStatus.RUNNING);

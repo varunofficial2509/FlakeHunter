@@ -1,6 +1,6 @@
 package dev.flakehunter.orchestrator.hunt;
 
-import dev.flakehunter.orchestrator.runner.DockerRunner;
+import dev.flakehunter.orchestrator.runner.Runner;
 import dev.flakehunter.orchestrator.runner.RunnerSettings;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,12 +23,12 @@ class HuntExecution {
     private static final Logger log = LoggerFactory.getLogger(HuntExecution.class);
 
     private final HuntService hunts;
-    private final DockerRunner docker;
+    private final Runner runners;
     private final RunnerSettings settings;
 
-    HuntExecution(HuntService hunts, DockerRunner docker, RunnerSettings settings) {
+    HuntExecution(HuntService hunts, Runner runners, RunnerSettings settings) {
         this.hunts = hunts;
-        this.docker = docker;
+        this.runners = runners;
         this.settings = settings;
     }
 
@@ -43,7 +43,7 @@ class HuntExecution {
             log.error("Hunt {} failed", huntId, e);
             hunts.fail(huntId, "Internal error: " + e.getMessage());
         } finally {
-            docker.removeVolume(huntId); // every container using it has exited by now
+            runners.removeVolume(huntId); // every container using it has exited by now
         }
     }
 
@@ -57,18 +57,18 @@ class HuntExecution {
         int jdk = hunt.getJdkVersion();
         // Read once: an Admin change applies to the next hunt, never halfway through this one.
         RunnerSettings.Limits limits = settings.current();
-        int exit = docker.prepare(new DockerRunner.PrepareJob(
+        int exit = runners.prepare(new Runner.PrepareJob(
                 huntId, jdk, hunt.getRepoUrl(), hunt.getCommitSha(), hunt.getMavenArgs(), limits.memory()));
         if (exit != 0) {
             hunts.fail(huntId, switch (exit) {
-                case DockerRunner.TIMED_OUT -> "Preparing timed out";
-                case DockerRunner.KILLED -> "Preparing ran out of memory (limit " + limits.memory().toMegabytes() + " MB)";
+                case Runner.TIMED_OUT -> "Preparing timed out";
+                case Runner.KILLED -> "Preparing ran out of memory (limit " + limits.memory().toMegabytes() + " MB)";
                 default -> "Preparing failed (exit " + exit + "): clone or test-compile did not succeed."
                         + " Check the commit SHA, jdkVersion and testCommand.";
             });
             return;
         }
-        launchAll(hunt, hunts.startRuns(huntId, docker.image(jdk)), limits);
+        launchAll(hunt, hunts.startRuns(huntId, runners.image(jdk)), limits);
     }
 
     /**
@@ -89,19 +89,19 @@ class HuntExecution {
             hunts.markRunning(run.getId());
             containers.add(Thread.ofVirtual().start(() -> {
                 try {
-                    int exit = docker.run(new DockerRunner.RunJob(hunt.getId(), run.getId(), hunt.getJdkVersion(),
+                    int exit = runners.run(new Runner.RunJob(hunt.getId(), run.getId(), hunt.getJdkVersion(),
                             run.getStrategy().name(), run.getSeed(), run.getTimezone(), hunt.getMavenArgs(),
                             limits.memory()));
                     // Exit 0 means the publisher delivered run.completed, and the listener records it.
                     // Anything else means no report is coming, so don't let the hunt wait for it.
-                    if (exit == DockerRunner.KILLED) {
+                    if (exit == Runner.KILLED) {
                         log.warn("Run {} was killed, most likely by its {} MB memory limit", run.getId(),
                                 limits.memory().toMegabytes());
                     }
                     if (exit != 0) {
                         log.warn("Run {} exited {} without reporting", run.getId(), exit);
                         hunts.finishRun(run.getId(),
-                                exit == DockerRunner.TIMED_OUT ? Run.Status.TIMED_OUT : Run.Status.FAILED);
+                                exit == Runner.TIMED_OUT ? Run.Status.TIMED_OUT : Run.Status.FAILED);
                     }
                 } catch (Exception e) {
                     log.error("Run {} could not be started", run.getId(), e);
