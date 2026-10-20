@@ -9,5 +9,8 @@ public final class Topics {
     public static final String FINDING_DETECTED = "finding.detected";
     public static final String ANALYSIS_COMPLETED = "analysis.completed";
 
+    /** Appended to a consumed topic's name for its dead-letter topic, e.g. {@code run.completed.dlq}. */
+    public static final String DLQ_SUFFIX = ".dlq";
+
     private Topics() {}
 }

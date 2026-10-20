@@ -5,12 +5,16 @@ import dev.flakehunter.events.RunCompleted;
 import dev.flakehunter.events.TestResult;
 import dev.flakehunter.events.Topics;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.List;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -29,22 +33,33 @@ class EventIngest {
     private final JdbcClient jdbc;
     private final JdbcTemplate batch;
     private final JsonMapper json;
+    private final DeadLetterPublishingRecoverer deadLetters;
 
-    EventIngest(JdbcClient jdbc, JdbcTemplate batch, JsonMapper json) {
+    EventIngest(JdbcClient jdbc, JdbcTemplate batch, JsonMapper json, DeadLetterPublishingRecoverer deadLetters) {
         this.jdbc = jdbc;
         this.batch = batch;
         this.json = json;
+        this.deadLetters = deadLetters;
     }
 
     // A hunt sends (tests x runs) results, often 100k+; one insert batch per poll instead of a commit per row.
     @KafkaListener(topics = Topics.TEST_RESULTS, batch = "true")
     @Transactional
-    void onTestResults(List<String> messages) {
-        List<Object[]> rows = messages.stream().map(m -> json.readValue(m, RESULT)).map(e -> {
+    void onTestResults(List<ConsumerRecord<String, String>> records) {
+        List<Object[]> rows = new ArrayList<>(records.size());
+        for (ConsumerRecord<String, String> record : records) {
+            EventEnvelope<TestResult> e;
+            try {
+                e = json.readValue(record.value(), RESULT);
+            } catch (JacksonException ex) {
+                // Park only the unreadable one; failing the batch would send the good results to the DLQ too.
+                deadLetters.accept(record, ex);
+                continue;
+            }
             TestResult r = e.payload();
-            return new Object[] {r.runId(), r.testId(), e.huntId(), r.strategy(), r.seed(), r.status().name(),
-                r.durationMs(), r.failureMessage(), r.stackHash(), r.orderIndex()};
-        }).toList();
+            rows.add(new Object[] {r.runId(), r.testId(), e.huntId(), r.strategy(), r.seed(), r.status().name(),
+                r.durationMs(), r.failureMessage(), r.stackHash(), r.orderIndex()});
+        }
         batch.batchUpdate("""
                 INSERT INTO results.test_results (run_id, test_id, hunt_id, strategy, seed, status, duration_ms,
                     failure_message, stack_hash, order_index)

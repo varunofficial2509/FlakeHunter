@@ -40,8 +40,8 @@ These are the rules for choosing a version:
 | Maven (inside runner image only) | 3.9.16                           |
 | Python                           | 3.12.15                          |
 | uv                               | 0.12.23                          |
-| Node.js (LTS)                    | 24.22.0                          |
-| pnpm                             | 12.9.1                           |
+| Node.js (LTS)                    | 20.20.2                          |
+| pnpm                             | 10.34.7                          |
 | Docker Engine                    | 29.x (host-provided, not pinned) |
 | kubectl                          | 1.35.9                           |
 | k3d                              | 5.9.0                            |
@@ -123,5 +123,5 @@ The tags are listed in `deploy/images.env`. They are Kafka 4.1.2 (KRaft), Postgr
 ## Consequences
 
 - Upgrades are deliberate PRs that change one source-of-truth file and its lockfile.
-- Local tools must match: install JDK 21.0.12.1, Node 24.22.0, uv 0.12.23, Helm 4.3.0, k3d 5.9.0 and kubectl 1.35.9.
+- Local tools must match: install JDK 21.0.12.1, Node 20.20.2, uv 0.12.23, Helm 4.3.0, k3d 5.9.0 and kubectl 1.35.9.
 - Revisit this ADR at the start of every phase, and move to Boot 4.1 once a Spring Cloud release train supports it.
