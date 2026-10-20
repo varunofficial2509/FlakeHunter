@@ -44,11 +44,20 @@ export function AdminPage() {
   return (
     <>
       <h1>Admin: runners</h1>
-      <p>
-        Docker has {gb(r.dockerMemoryMb)} and {r.dockerCpus} CPUs;{" "}
-        {gb(r.infraMemoryMb)} of that is kept for Kafka and Postgres (set by the
-        deploy preset). Changes apply to the next hunt.
-      </p>
+      {/* infraMemoryMb is 0 in Kubernetes: there the runners have their own quota. */}
+      {r.infraMemoryMb > 0 ? (
+        <p>
+          Docker has {gb(r.dockerMemoryMb)} and {r.dockerCpus} CPUs;{" "}
+          {gb(r.infraMemoryMb)} of that is kept for Kafka and Postgres (set by
+          the deploy preset). Changes apply to the next hunt.
+        </p>
+      ) : (
+        <p>
+          Runners share a {gb(r.dockerMemoryMb)} quota in the cluster (set by
+          the Helm chart) on {r.dockerCpus} CPUs. Changes apply to the next
+          hunt.
+        </p>
+      )}
 
       <form onSubmit={submit}>
         <label>

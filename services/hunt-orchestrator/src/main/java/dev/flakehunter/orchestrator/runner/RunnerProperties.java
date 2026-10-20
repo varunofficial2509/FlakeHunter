@@ -8,9 +8,10 @@ import org.springframework.util.unit.DataSize;
 @ConfigurationProperties("flakehunter.runner")
 public record RunnerProperties(
         String imagePrefix,
-        String network,
+        String network, // Docker only
+        String namespace, // Kubernetes only: runner Jobs go here, apart from the platform
         String kafkaBootstrapServers,
-        String mavenCacheVolume,
+        String mavenCacheVolume, // a Docker volume, or a PersistentVolumeClaim in Kubernetes
         Duration prepareTimeout,
         Duration runTimeout,
         // Defaults until changed in the Admin panel; see RunnerSettings.

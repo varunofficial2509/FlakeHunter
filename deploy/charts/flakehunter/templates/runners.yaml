@@ -1,0 +1,89 @@
+{{- /*
+Where the orchestrator's runner Jobs run (KubernetesRunner). They execute untrusted test code, so they get their
+own namespace: a memory quota, a network fence, and no Kubernetes API access of their own.
+*/}}
+{{- $ns := .Values.runners.namespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+---
+# All runners together never get more memory than this; a Job that would exceed it waits for room.
+# KubernetesRunner reports it to the UI as the runners' machine size.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: runners
+  namespace: {{ $ns }}
+spec:
+  hard:
+    requests.memory: {{ .Values.runners.memoryMb }}Mi
+    limits.memory: {{ .Values.runners.memoryMb }}Mi
+---
+# Runners may resolve names, publish to Kafka and download from the internet (GitHub, Maven Central).
+# Nothing else: not Postgres, not the services, not anything on the Mac's private networks. Nothing reaches them.
+# shortcut: k3s's policy controller fences a new pod about a second after it starts; fine here because the
+# untrusted tests start only after the clone and compile. A CNI like Cilium closes that gap.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: runners
+  namespace: {{ $ns }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Release.Namespace }} } }
+          podSelector: { matchLabels: { app: kafka } }
+      ports:
+        - { protocol: TCP, port: 9092 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16] # pods, services, Docker and home networks
+---
+# The orchestrator's identity. Its Role below lives in the runner namespace, so it can do nothing elsewhere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: runner-launcher
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: runner-launcher
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create, get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods] # exit codes, and whether the Maven cache is in use
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [resourcequotas]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: runner-launcher
+  namespace: {{ $ns }}
+subjects:
+  - kind: ServiceAccount
+    name: runner-launcher
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: runner-launcher

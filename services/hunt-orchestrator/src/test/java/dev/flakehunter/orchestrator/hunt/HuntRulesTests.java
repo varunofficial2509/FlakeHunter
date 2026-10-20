@@ -2,7 +2,7 @@ package dev.flakehunter.orchestrator.hunt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import dev.flakehunter.orchestrator.runner.DockerRunner.Machine;
+import dev.flakehunter.orchestrator.runner.Runner.Machine;
 import dev.flakehunter.orchestrator.runner.RunnerSettings.Limits;
 import java.util.List;
 import java.util.UUID;

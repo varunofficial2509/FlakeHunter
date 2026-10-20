@@ -17,10 +17,12 @@ COPY publisher/build/install/publisher /opt/publisher
 COPY images/entrypoint.sh images/prepare.sh /opt/flakehunter/
 
 # The tests are untrusted code: never run them as root (tech doc section 11).
-# The mount points exist and belong to the runner, so new Docker volumes mounted there do too.
+# The mount points exist and belong to the runner, so new Docker volumes mounted there do too. Kubernetes
+# volumes arrive owned by root instead, so git must be told to trust /workspace (the runner is its only user).
 RUN useradd --uid 10001 --create-home runner \
     && mkdir /workspace /home/runner/.m2 && chown runner /workspace /home/runner/.m2 \
-    && chmod 0755 /opt/flakehunter/*.sh
+    && chmod 0755 /opt/flakehunter/*.sh \
+    && git config --system --add safe.directory /workspace
 USER 10001
 WORKDIR /workspace
 

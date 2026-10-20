@@ -18,6 +18,7 @@ services:
     memory: 512Mi
     database: true
     kafka: true
+    launchesRunners: true # gets the runner ServiceAccount and settings (templates/runners.yaml)
     env:
       FLAKEHUNTER_PROJECT_SERVICE_URL: http://project-service:8081
   result-aggregator:
@@ -38,6 +39,12 @@ services:
 
 web:
   memory: 32Mi
+
+# Runner Jobs live in their own namespace. Its quota is all the memory they get together: with the defaults
+# (1.5 GB per runner, set in the Admin panel) about 2 run at once next to the platform in Docker's 7.8 GB VM.
+runners:
+  namespace: flakehunter-runners
+  memoryMb: 3072
 
 # Same sizes as deploy/presets/medium.env.
 postgres:

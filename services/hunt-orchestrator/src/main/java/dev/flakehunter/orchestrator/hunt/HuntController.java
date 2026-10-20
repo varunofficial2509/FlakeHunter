@@ -1,7 +1,7 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import jakarta.validation.Valid;
-import dev.flakehunter.orchestrator.runner.DockerRunner;
+import dev.flakehunter.orchestrator.runner.Runner;
 import dev.flakehunter.orchestrator.runner.RunnerSettings;
 import java.net.URI;
 import java.util.List;
@@ -30,19 +30,19 @@ class HuntController {
 
     private final HuntService huntService;
     private final HuntRepository hunts;
-    private final DockerRunner docker;
+    private final Runner runners;
     private final RunnerSettings runner;
 
-    HuntController(HuntService huntService, HuntRepository hunts, DockerRunner docker, RunnerSettings runner) {
+    HuntController(HuntService huntService, HuntRepository hunts, Runner runners, RunnerSettings runner) {
         this.huntService = huntService;
         this.hunts = hunts;
-        this.docker = docker;
+        this.runners = runners;
         this.runner = runner;
     }
 
     @GetMapping("/options")
     HuntOptions options() {
-        return HuntOptions.of(docker.machine(), runner.current());
+        return HuntOptions.of(runners.machine(), runner.current());
     }
 
     // Returns as soon as the hunt is saved; preparing and running continue in the background (HuntExecution).

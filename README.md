@@ -37,9 +37,13 @@ FLAKEHUNTER_ADMIN_PASSWORD=pick-one deploy/k3d/up.sh   # the password is only ne
 
 Then open http://localhost:8090 and log in as `admin`. Rerun `deploy/k3d/up.sh` after any code change: it rebuilds the images and rolls them out.
 
+Hunts run as Kubernetes Jobs in the `flakehunter-runners` namespace. Its quota (3 GB, `runners.memoryMb` in the chart) fits about 2 runners at once; a Job that doesn't fit waits for room. Runners can reach Kafka and the internet, nothing else. The first `up.sh` builds runner images for JDK 8, 11, 17 and 21; `RUNNER_JDKS="17" deploy/k3d/up.sh` builds only the ones you need.
+
 | Task               | Command                                                                          |
 | ------------------ | -------------------------------------------------------------------------------- |
 | See the pods       | `kubectl --context k3d-flakehunter -n flakehunter get pods`                      |
 | Logs of a service  | `kubectl --context k3d-flakehunter -n flakehunter logs deploy/hunt-orchestrator` |
+| Runner Jobs        | `kubectl --context k3d-flakehunter -n flakehunter-runners get jobs,pods`         |
+| Logs of a run      | `kubectl --context k3d-flakehunter -n flakehunter-runners logs job/run-<runId>`  |
 | Pause (keeps data) | `k3d cluster stop flakehunter`, later `k3d cluster start flakehunter`            |
 | Delete everything  | `k3d cluster delete flakehunter` (also deletes the data and the registry)        |

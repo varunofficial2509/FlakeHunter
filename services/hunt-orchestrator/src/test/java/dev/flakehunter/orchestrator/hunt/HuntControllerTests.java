@@ -8,7 +8,7 @@ import static org.mockito.Mockito.when;
 import dev.flakehunter.orchestrator.TestcontainersConfiguration;
 import dev.flakehunter.orchestrator.outbox.Outbox;
 import dev.flakehunter.orchestrator.project.ProjectClient;
-import dev.flakehunter.orchestrator.runner.DockerRunner;
+import dev.flakehunter.orchestrator.runner.Runner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -59,11 +59,11 @@ class HuntControllerTests {
     ProjectClient projects;
 
     @MockitoBean
-    DockerRunner docker;
+    Runner runners;
 
     @BeforeEach
     void machineFitsFourRunners() {
-        when(docker.machine()).thenReturn(new DockerRunner.Machine(8_392_605_696L, 10, 1L << 30));
+        when(runners.machine()).thenReturn(new Runner.Machine(8_392_605_696L, 10, 1L << 30));
     }
 
     @BeforeEach

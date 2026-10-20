@@ -13,7 +13,7 @@ import dev.flakehunter.events.RunCompleted;
 import dev.flakehunter.events.Topics;
 import dev.flakehunter.orchestrator.TestcontainersConfiguration;
 import dev.flakehunter.orchestrator.project.ProjectClient;
-import dev.flakehunter.orchestrator.runner.DockerRunner;
+import dev.flakehunter.orchestrator.runner.Runner;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -52,18 +52,18 @@ class HuntExecutionTests {
     ProjectClient projects;
 
     @MockitoBean
-    DockerRunner docker;
+    Runner runners;
 
     @Test
     void preparesRunsAnalyzesAndCompletes() throws Exception {
         givenProject(8);
-        when(docker.image(8)).thenReturn("flakehunter/runner:jdk8");
+        when(runners.image(8)).thenReturn("flakehunter/runner:jdk8");
         UUID huntId = start(new Budget(5, 2));
 
         // Prepared once, then 3 baseline + 2 perturbed runs started, and the hunt waits for their reports.
         await().atMost(Duration.ofSeconds(10)).until(() -> status(huntId) == HuntStatus.RUNNING
                 && runsOf(huntId).stream().allMatch(r -> r.getStatus() == Run.Status.RUNNING));
-        verify(docker).prepare(any());
+        verify(runners).prepare(any());
         List<Run> planned = runsOf(huntId);
         assertThat(planned).hasSize(5);
         assertThat(hunts.findById(huntId).orElseThrow().getRunnerImage()).isEqualTo("flakehunter/runner:jdk8");
@@ -78,7 +78,7 @@ class HuntExecutionTests {
 
         await().atMost(Duration.ofSeconds(15)).until(() -> status(huntId) == HuntStatus.ANALYZING);
         assertThat(runsOf(huntId)).allMatch(r -> r.getStatus() == Run.Status.SUCCEEDED);
-        verify(docker, timeout(5000)).removeVolume(huntId);
+        verify(runners, timeout(5000)).removeVolume(huntId);
 
         String analysis = json.writeValueAsString(EventEnvelope.of(Topics.ANALYSIS_COMPLETED, huntId,
                 new AnalysisCompleted(5, 21, 1)));
@@ -90,7 +90,7 @@ class HuntExecutionTests {
     @Test
     void runnerThatExitsWithoutReportingFailsTheRunNotTheHunt() {
         givenProject(8);
-        when(docker.run(any())).thenReturn(1);
+        when(runners.run(any())).thenReturn(1);
         UUID huntId = start(new Budget(3, 3));
 
         // No run.completed will come, so the launcher records the failures and the hunt can still move on.
@@ -101,7 +101,7 @@ class HuntExecutionTests {
     @Test
     void failedPrepareFailsTheHuntWithAReason() {
         givenProject(8);
-        when(docker.prepare(any())).thenReturn(1);
+        when(runners.prepare(any())).thenReturn(1);
         UUID huntId = start(new Budget(40, 4));
 
         await().atMost(Duration.ofSeconds(10)).until(() -> status(huntId) == HuntStatus.FAILED);

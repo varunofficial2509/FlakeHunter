@@ -3,7 +3,7 @@ package dev.flakehunter.orchestrator;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.flakehunter.orchestrator.project.ProjectClient;
-import dev.flakehunter.orchestrator.runner.DockerRunner;
+import dev.flakehunter.orchestrator.runner.Runner;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +27,7 @@ class HousekeepingTests {
     ProjectClient projects;
 
     @MockitoBean
-    DockerRunner docker;
+    Runner runners;
 
     @Test
     void deletesOnlyOldPublishedEventsAndOldEventIds() {

@@ -27,6 +27,15 @@ done
 docker build --quiet --build-arg NODE_IMAGE --build-arg NGINX_IMAGE -t "$REGISTRY/flakehunter/web:$TAG" web
 docker push --quiet "$REGISTRY/flakehunter/web:$TAG"
 
+# Runner images keep their jdkN tags (Jobs pull them with imagePullPolicy Always). Building all four takes a
+# while the first time; RUNNER_JDKS="17" deploy/k3d/up.sh builds only what your projects use.
+read -r -a jdks <<< "${RUNNER_JDKS:-8 11 17 21}"
+runner/images/build.sh "${jdks[@]}"
+for v in "${jdks[@]}"; do
+  docker tag "flakehunter/runner:jdk$v" "$REGISTRY/flakehunter/runner:jdk$v"
+  docker push --quiet "$REGISTRY/flakehunter/runner:jdk$v"
+done
+
 kubectl --context "$CONTEXT" create namespace "$NS" --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
 # Secrets are made once and kept: a new Postgres password would lock the services out of the existing data.
 if ! kubectl --context "$CONTEXT" -n "$NS" get secret flakehunter-secrets >/dev/null 2>&1; then

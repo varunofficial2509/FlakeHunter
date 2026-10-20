@@ -21,4 +21,5 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-postgresql")
     testImplementation("org.testcontainers:testcontainers-kafka")
     testImplementation("org.awaitility:awaitility")
+    testImplementation(libs.fabric8.server.mock) // a fake Kubernetes API for KubernetesRunnerTests
 }

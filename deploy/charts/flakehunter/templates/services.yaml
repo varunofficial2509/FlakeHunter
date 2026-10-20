@@ -16,6 +16,11 @@ spec:
     spec:
       # Otherwise Kubernetes adds env vars like KAFKA_PORT for every Service, which images read as config.
       enableServiceLinks: false
+      {{- if $svc.launchesRunners }}
+      serviceAccountName: runner-launcher
+      {{- else }}
+      automountServiceAccountToken: false # only the runner launcher talks to the Kubernetes API
+      {{- end }}
       {{- if $svc.database }}
       # Flyway needs the database at startup; without this the first install crash-loops until Postgres is up.
       initContainers:
@@ -42,6 +47,15 @@ spec:
             {{- if $svc.kafka }}
             - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
               value: kafka:9092
+            {{- end }}
+            {{- if $svc.launchesRunners }}
+            - { name: FLAKEHUNTER_RUNNER_PLATFORM, value: kubernetes }
+            - { name: FLAKEHUNTER_RUNNER_NAMESPACE, value: {{ $.Values.runners.namespace }} }
+            - name: FLAKEHUNTER_RUNNER_IMAGE_PREFIX
+              value: "{{ $.Values.image.registry }}/flakehunter/runner:jdk"
+            - name: FLAKEHUNTER_RUNNER_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "flakehunter.kafka" $ }}
+            - { name: FLAKEHUNTER_RUNNER_TOTAL_MEMORY, value: "{{ $.Values.runners.memoryMb }}MB" }
             {{- end }}
             {{- range $key, $value := $svc.env }}
             - name: {{ $key }}
