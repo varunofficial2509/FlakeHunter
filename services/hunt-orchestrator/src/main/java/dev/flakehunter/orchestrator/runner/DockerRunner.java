@@ -12,7 +12,11 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.stereotype.Component;
+import org.springframework.util.unit.DataSize;
+import org.springframework.web.ErrorResponseException;
 
 /**
  * Starts runner containers with the docker CLI (Phase 1, Docker Compose).
@@ -21,19 +25,31 @@ import org.springframework.stereotype.Component;
 @Component
 public class DockerRunner {
 
-    public record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs) {}
+    public record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs,
+            DataSize memory) {}
 
     /** What Docker's VM offers: runners live inside it, so its memory, not the Mac's, is the limit. */
-    public record Machine(long memoryBytes, int cpus) {}
+    public record Machine(long memoryBytes, int cpus) {
 
-    public static class DockerUnavailableException extends RuntimeException {
+        // Kafka (512 MB heap) and Postgres share Docker's VM with the runners.
+        private static final long INFRA_BYTES = 1024L * 1024 * 1024;
+
+        /** What the runners may use in total. */
+        public long usableBytes() {
+            return memoryBytes - INFRA_BYTES;
+        }
+    }
+
+    /** Answered as a 503 problem detail by any controller. */
+    public static class DockerUnavailableException extends ErrorResponseException {
         DockerUnavailableException(String message, Throwable cause) {
-            super(message, cause);
+            super(HttpStatus.SERVICE_UNAVAILABLE, ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Docker is not running; start it"), new IllegalStateException(message, cause));
         }
     }
 
     public record RunJob(UUID huntId, UUID runId, int jdk, String strategy, Long seed, String timezone,
-            String mavenArgs) {}
+            String mavenArgs, DataSize memory) {}
 
     /** Exit code we report when we had to kill a container; the same one {@code timeout} uses. */
     public static final int TIMED_OUT = 124;
@@ -77,7 +93,7 @@ public class DockerRunner {
         String name = "flakehunter-prepare-" + job.huntId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
                 "--network", props.network(),
-                "--memory", memoryLimit(), "--memory-swap", memoryLimit(),
+                "--memory", memoryLimit(job.memory()), "--memory-swap", memoryLimit(job.memory()),
                 "-v", volume(job.huntId()) + ":/workspace",
                 "-v", props.mavenCacheVolume() + ":/home/runner/.m2",
                 "-e", "REPO_URL=" + job.repoUrl(),
@@ -93,7 +109,7 @@ public class DockerRunner {
         String name = "flakehunter-run-" + job.runId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
                 "--network", props.network(),
-                "--memory", memoryLimit(), "--memory-swap", memoryLimit(),
+                "--memory", memoryLimit(job.memory()), "--memory-swap", memoryLimit(job.memory()),
                 // Read-only: each run copies the workspace, so runs can't change each other's files.
                 "-v", volume(job.huntId()) + ":/prepared:ro",
                 "-v", props.mavenCacheVolume() + ":/home/runner/.m2",
@@ -117,9 +133,15 @@ public class DockerRunner {
         exec(name, List.of("docker", "volume", "rm", "--force", volume(huntId)), Duration.ofMinutes(1));
     }
 
+    /** Empties the shared Maven repository. False if a container still uses it. */
+    public boolean removeMavenCache() {
+        return exec("remove-maven-cache", List.of("docker", "volume", "rm", "--force", props.mavenCacheVolume()),
+                Duration.ofMinutes(1)) == 0;
+    }
+
     /** Memory and swap set to the same value: no swap, so a test that leaks memory fails fast instead of crawling. */
-    private String memoryLimit() {
-        return props.memory().toMegabytes() + "m";
+    private static String memoryLimit(DataSize memory) {
+        return memory.toMegabytes() + "m";
     }
 
     private static String volume(UUID huntId) {

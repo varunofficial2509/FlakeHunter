@@ -1,7 +1,7 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import dev.flakehunter.orchestrator.runner.DockerRunner.Machine;
-import dev.flakehunter.orchestrator.runner.RunnerProperties;
+import dev.flakehunter.orchestrator.runner.RunnerSettings.Limits;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -13,11 +13,9 @@ record HuntOptions(List<Integer> maxRuns, List<Integer> maxParallelPods, Budget 
 
     private static final List<Integer> RUNS = List.of(10, 20, 40, 80);
     private static final List<Integer> PARALLEL = List.of(1, 2, 4, 8);
-    // Kafka (512 MB heap) and Postgres share Docker's VM with the runners.
-    private static final long INFRA_BYTES = 1024L * 1024 * 1024;
 
-    static HuntOptions of(Machine machine, RunnerProperties runner) {
-        long usable = Math.min(runner.totalMemory().toBytes(), machine.memoryBytes() - INFRA_BYTES);
+    static HuntOptions of(Machine machine, Limits runner) {
+        long usable = Math.min(runner.totalMemory().toBytes(), machine.usableBytes());
         long fit = Math.max(1, usable / runner.memory().toBytes());
         long cap = Math.min(fit, machine.cpus());
         List<Integer> parallel = PARALLEL.stream().filter(p -> p == 1 || p <= cap).toList();

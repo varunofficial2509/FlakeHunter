@@ -1,7 +1,7 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import dev.flakehunter.orchestrator.runner.DockerRunner;
-import dev.flakehunter.orchestrator.runner.RunnerProperties;
+import dev.flakehunter.orchestrator.runner.RunnerSettings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,12 +24,12 @@ class HuntExecution {
 
     private final HuntService hunts;
     private final DockerRunner docker;
-    private final RunnerProperties limits;
+    private final RunnerSettings settings;
 
-    HuntExecution(HuntService hunts, DockerRunner docker, RunnerProperties limits) {
+    HuntExecution(HuntService hunts, DockerRunner docker, RunnerSettings settings) {
         this.hunts = hunts;
         this.docker = docker;
-        this.limits = limits;
+        this.settings = settings;
     }
 
     // After commit: the background work must never start for a hunt whose transaction rolled back.
@@ -55,8 +55,10 @@ class HuntExecution {
             return;
         }
         int jdk = hunt.getJdkVersion();
+        // Read once: an Admin change applies to the next hunt, never halfway through this one.
+        RunnerSettings.Limits limits = settings.current();
         int exit = docker.prepare(new DockerRunner.PrepareJob(
-                huntId, jdk, hunt.getRepoUrl(), hunt.getCommitSha(), hunt.getMavenArgs()));
+                huntId, jdk, hunt.getRepoUrl(), hunt.getCommitSha(), hunt.getMavenArgs(), limits.memory()));
         if (exit != 0) {
             hunts.fail(huntId, switch (exit) {
                 case DockerRunner.TIMED_OUT -> "Preparing timed out";
@@ -66,7 +68,7 @@ class HuntExecution {
             });
             return;
         }
-        launchAll(hunt, hunts.startRuns(huntId, docker.image(jdk)));
+        launchAll(hunt, hunts.startRuns(huntId, docker.image(jdk)), limits);
     }
 
     /**
@@ -74,7 +76,7 @@ class HuntExecution {
      * memory), and returns when all containers exited.
      * shortcut: the memory cap is per hunt; two hunts at once can use twice the total. Fine for one user.
      */
-    private void launchAll(Hunt hunt, List<Run> runs) throws InterruptedException {
+    private void launchAll(Hunt hunt, List<Run> runs, RunnerSettings.Limits limits) throws InterruptedException {
         int parallel = Math.min(hunt.getBudget().maxParallelPods(), limits.maxContainers());
         if (parallel < hunt.getBudget().maxParallelPods()) {
             log.info("Hunt {}: running {} containers at once, not {}: that is all the runner memory allows",
@@ -88,7 +90,8 @@ class HuntExecution {
             containers.add(Thread.ofVirtual().start(() -> {
                 try {
                     int exit = docker.run(new DockerRunner.RunJob(hunt.getId(), run.getId(), hunt.getJdkVersion(),
-                            run.getStrategy().name(), run.getSeed(), run.getTimezone(), hunt.getMavenArgs()));
+                            run.getStrategy().name(), run.getSeed(), run.getTimezone(), hunt.getMavenArgs(),
+                            limits.memory()));
                     // Exit 0 means the publisher delivered run.completed, and the listener records it.
                     // Anything else means no report is coming, so don't let the hunt wait for it.
                     if (exit == DockerRunner.KILLED) {

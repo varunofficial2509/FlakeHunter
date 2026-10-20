@@ -3,6 +3,7 @@ import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
 import { auth } from "./api";
+import { AdminPage } from "./pages/AdminPage";
 import { HuntPage } from "./pages/HuntPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectPage } from "./pages/ProjectPage";
@@ -18,7 +19,9 @@ function Layout({ children }: { children: ReactNode }) {
   return (
     <>
       <header>
-        <Link to="/">FlakeHunter</Link>
+        <nav>
+          <Link to="/">FlakeHunter</Link> · <Link to="/admin">Admin</Link>
+        </nav>
         <button
           onClick={() => {
             auth.clear();
@@ -52,6 +55,14 @@ createRoot(document.getElementById("root")!).render(
             element={
               <Layout>
                 <ProjectPage />
+              </Layout>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <Layout>
+                <AdminPage />
               </Layout>
             }
           />

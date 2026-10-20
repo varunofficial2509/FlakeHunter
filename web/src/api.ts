@@ -39,7 +39,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       problem.errors,
     );
   }
-  return res.json();
+  return res.status === 204 ? (undefined as T) : res.json();
 }
 
 export const post = <T>(path: string, body: unknown) =>
@@ -80,6 +80,15 @@ export type HuntOptions = {
   maxRuns: number[];
   maxParallelPods: number[];
   defaults: Budget;
+};
+
+export type RunnerSettings = {
+  memoryMb: number;
+  totalMemoryMb: number;
+  memoryMbOptions: number[];
+  totalMemoryMbOptions: number[];
+  dockerMemoryMb: number;
+  dockerCpus: number;
 };
 
 export type Finding = {

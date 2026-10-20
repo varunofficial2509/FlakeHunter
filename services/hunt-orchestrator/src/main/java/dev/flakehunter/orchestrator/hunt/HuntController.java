@@ -2,7 +2,7 @@ package dev.flakehunter.orchestrator.hunt;
 
 import jakarta.validation.Valid;
 import dev.flakehunter.orchestrator.runner.DockerRunner;
-import dev.flakehunter.orchestrator.runner.RunnerProperties;
+import dev.flakehunter.orchestrator.runner.RunnerSettings;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -31,9 +31,9 @@ class HuntController {
     private final HuntService huntService;
     private final HuntRepository hunts;
     private final DockerRunner docker;
-    private final RunnerProperties runner;
+    private final RunnerSettings runner;
 
-    HuntController(HuntService huntService, HuntRepository hunts, DockerRunner docker, RunnerProperties runner) {
+    HuntController(HuntService huntService, HuntRepository hunts, DockerRunner docker, RunnerSettings runner) {
         this.huntService = huntService;
         this.hunts = hunts;
         this.docker = docker;
@@ -42,7 +42,7 @@ class HuntController {
 
     @GetMapping("/options")
     HuntOptions options() {
-        return HuntOptions.of(docker.machine(), runner);
+        return HuntOptions.of(docker.machine(), runner.current());
     }
 
     // Returns as soon as the hunt is saved; preparing and running continue in the background (HuntExecution).
@@ -74,11 +74,6 @@ class HuntController {
     HuntResponse get(@PathVariable UUID id) {
         return hunts.findById(id).map(HuntResponse::from)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Hunt " + id + " not found"));
-    }
-
-    @ExceptionHandler(DockerRunner.DockerUnavailableException.class)
-    ProblemDetail dockerDown(DockerRunner.DockerUnavailableException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "Docker is not running; start it");
     }
 
     @ExceptionHandler(RestClientException.class)

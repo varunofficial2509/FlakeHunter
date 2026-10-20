@@ -13,13 +13,6 @@ public record RunnerProperties(
         String mavenCacheVolume,
         Duration prepareTimeout,
         Duration runTimeout,
-        // Hard limit per container; its JVMs size their heaps to fit inside it.
+        // Defaults until changed in the Admin panel; see RunnerSettings.
         DataSize memory,
-        // All runner containers together never use more, whatever a hunt's budget asks for.
-        DataSize totalMemory) {
-
-    /** How many containers fit in totalMemory at once (at least one). */
-    public int maxContainers() {
-        return (int) Math.max(1, totalMemory.toBytes() / memory.toBytes());
-    }
-}
+        DataSize totalMemory) {}
