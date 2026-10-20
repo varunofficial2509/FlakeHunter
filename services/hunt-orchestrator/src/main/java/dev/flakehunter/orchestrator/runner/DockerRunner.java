@@ -28,6 +28,8 @@ public class DockerRunner {
 
     /** Exit code we report when we had to kill a container; the same one {@code timeout} uses. */
     public static final int TIMED_OUT = 124;
+    /** 128 + SIGKILL: what a container exits with when it hits its memory limit. */
+    public static final int KILLED = 137;
 
     private static final Logger log = LoggerFactory.getLogger(DockerRunner.class);
     // The run script stops the tests at run-timeout; this margin lets it still publish before we kill it.
@@ -48,6 +50,7 @@ public class DockerRunner {
         String name = "flakehunter-prepare-" + job.huntId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
                 "--network", props.network(),
+                "--memory", memoryLimit(), "--memory-swap", memoryLimit(),
                 "-v", volume(job.huntId()) + ":/workspace",
                 "-v", props.mavenCacheVolume() + ":/home/runner/.m2",
                 "-e", "REPO_URL=" + job.repoUrl(),
@@ -63,6 +66,7 @@ public class DockerRunner {
         String name = "flakehunter-run-" + job.runId();
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "--rm", "--name", name,
                 "--network", props.network(),
+                "--memory", memoryLimit(), "--memory-swap", memoryLimit(),
                 // Read-only: each run copies the workspace, so runs can't change each other's files.
                 "-v", volume(job.huntId()) + ":/prepared:ro",
                 "-v", props.mavenCacheVolume() + ":/home/runner/.m2",
@@ -84,6 +88,11 @@ public class DockerRunner {
     public void removeVolume(UUID huntId) {
         String name = "remove-" + volume(huntId);
         exec(name, List.of("docker", "volume", "rm", "--force", volume(huntId)), Duration.ofMinutes(1));
+    }
+
+    /** Memory and swap set to the same value: no swap, so a test that leaks memory fails fast instead of crawling. */
+    private String memoryLimit() {
+        return props.memory().toMegabytes() + "m";
     }
 
     private static String volume(UUID huntId) {

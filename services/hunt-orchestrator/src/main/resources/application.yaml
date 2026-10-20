@@ -44,6 +44,10 @@ flakehunter:
     maven-cache-volume: flakehunter-runner-m2
     prepare-timeout: 15m
     run-timeout: 30m
+    # Docker's VM has ~7.8 GB and Kafka + Postgres need ~1 GB of it. Without a limit every runner JVM sizes
+    # itself to the whole VM, and the VM's OOM killer may pick Kafka instead of the runner.
+    memory: 1536MB # Maven and the Surefire fork each get ~25% as heap (~384 MB)
+    total-memory: 6GB # so at most 4 runners at once, whatever maxParallelPods says
 
 server:
   port: 8082

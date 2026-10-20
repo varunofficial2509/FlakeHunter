@@ -7,6 +7,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import dev.flakehunter.events.AnalysisCompleted;
 import dev.flakehunter.events.EventEnvelope;
 import dev.flakehunter.events.RunCompleted;
 import dev.flakehunter.events.Topics;
@@ -25,7 +26,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
-/** The saga from POST to ANALYZING, with Docker and project-service replaced by mocks and real Kafka. */
+/** The saga from POST to COMPLETED, with Docker and project-service replaced by mocks and real Kafka. */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 class HuntExecutionTests {
@@ -54,7 +55,7 @@ class HuntExecutionTests {
     DockerRunner docker;
 
     @Test
-    void preparesRunsAndMovesToAnalyzingWhenEveryRunReported() throws Exception {
+    void preparesRunsAnalyzesAndCompletes() throws Exception {
         givenProject(8);
         when(docker.image(8)).thenReturn("flakehunter/runner:jdk8");
         UUID huntId = start(new Budget(5, 2));
@@ -78,6 +79,12 @@ class HuntExecutionTests {
         await().atMost(Duration.ofSeconds(15)).until(() -> status(huntId) == HuntStatus.ANALYZING);
         assertThat(runsOf(huntId)).allMatch(r -> r.getStatus() == Run.Status.SUCCEEDED);
         verify(docker, timeout(5000)).removeVolume(huntId);
+
+        String analysis = json.writeValueAsString(EventEnvelope.of(Topics.ANALYSIS_COMPLETED, huntId,
+                new AnalysisCompleted(5, 21, 1)));
+        kafka.send(Topics.ANALYSIS_COMPLETED, huntId.toString(), analysis).get();
+        kafka.send(Topics.ANALYSIS_COMPLETED, huntId.toString(), analysis).get(); // duplicate is ignored
+        await().atMost(Duration.ofSeconds(15)).until(() -> status(huntId) == HuntStatus.COMPLETED);
     }
 
     @Test
