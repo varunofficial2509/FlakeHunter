@@ -1,0 +1,21 @@
+package dev.flakehunter.orchestrator.runner;
+
+import java.time.Duration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.unit.DataSize;
+
+/** {@code flakehunter.runner.*} in application.yaml. */
+@ConfigurationProperties("flakehunter.runner")
+public record RunnerProperties(
+        String imagePrefix,
+        String network, // Docker only
+        String namespace, // Kubernetes only: runner Jobs go here, apart from the platform
+        String kafkaBootstrapServers,
+        String mavenCacheVolume, // a Docker volume, or a PersistentVolumeClaim in Kubernetes
+        Duration prepareTimeout,
+        Duration runTimeout,
+        // Defaults until changed in the Admin panel; see RunnerSettings.
+        DataSize memory,
+        DataSize totalMemory,
+        // Kept free in Docker's VM for Kafka and Postgres: their mem_limits in the deploy/presets file.
+        DataSize infraMemory) {}

@@ -1,0 +1,94 @@
+{{- /* One Deployment + Service per Spring service; values.yaml says which needs the database or Kafka. */}}
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: { app: {{ $name }} }
+spec:
+  {{- if not $svc.autoscaled }}
+  replicas: 1
+  {{- end }}{{/* else KEDA owns the count; setting it here would reset it on every helm upgrade */}}
+  selector:
+    matchLabels: { app: {{ $name }} }
+  template:
+    metadata:
+      labels: { app: {{ $name }} }
+      annotations: # templates/prometheus.yaml scrapes pods that carry these
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+    spec:
+      # Otherwise Kubernetes adds env vars like KAFKA_PORT for every Service, which images read as config.
+      enableServiceLinks: false
+      {{- if $svc.launchesRunners }}
+      serviceAccountName: runner-launcher
+      {{- else }}
+      automountServiceAccountToken: false # only the runner launcher talks to the Kubernetes API
+      {{- end }}
+      {{- if $svc.database }}
+      # Flyway needs the database at startup; without this the first install crash-loops until Postgres is up.
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ $.Values.postgres.image }}
+          command: ["sh", "-c", "until pg_isready -h postgres -U flakehunter; do sleep 2; done"]
+          resources:
+            limits: { memory: 32Mi }
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ $.Values.image.registry }}/flakehunter/{{ $name }}:{{ required "image.tag" $.Values.image.tag }}"
+          ports:
+            - containerPort: {{ $svc.port }}
+          env:
+            {{- if $svc.database }}
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/flakehunter
+            - name: SPRING_DATASOURCE_USERNAME
+              value: flakehunter
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $.Values.secretName }}, key: postgres-password } }
+            {{- end }}
+            {{- if $svc.kafka }}
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            {{- end }}
+            {{- if $svc.launchesRunners }}
+            - { name: FLAKEHUNTER_RUNNER_PLATFORM, value: kubernetes }
+            - { name: FLAKEHUNTER_RUNNER_NAMESPACE, value: {{ $.Values.runners.namespace }} }
+            - name: FLAKEHUNTER_RUNNER_IMAGE_PREFIX
+              value: "{{ $.Values.image.registry }}/flakehunter/runner:jdk"
+            - name: FLAKEHUNTER_RUNNER_KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "flakehunter.kafka" $ }}
+            - { name: FLAKEHUNTER_RUNNER_TOTAL_MEMORY, value: "{{ $.Values.runners.memoryMb }}MB" }
+            {{- end }}
+            {{- range $key, $value := $svc.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- range $key, $secretKey := $svc.secretEnv }}
+            - name: {{ $key }}
+              valueFrom: { secretKeyRef: { name: {{ $.Values.secretName }}, key: {{ $secretKey }} } }
+            {{- end }}
+          resources:
+            requests: { memory: {{ $svc.memory }}, cpu: 50m }
+            limits: { memory: {{ $svc.memory }} }
+          # Spring Boot turns these endpoints on by itself when it runs in Kubernetes.
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: {{ $svc.port }} }
+            periodSeconds: 5
+            failureThreshold: 36 # up to 3 minutes for a cold JVM on a busy laptop
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: {{ $svc.port }} }
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: {{ $svc.port }} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  selector: { app: {{ $name }} }
+  ports:
+    - port: {{ $svc.port }}
+{{- end }}

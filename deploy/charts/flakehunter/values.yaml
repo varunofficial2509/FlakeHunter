@@ -1,0 +1,78 @@
+# Images are built and pushed by deploy/k3d/up.sh. Inside the cluster the k3d registry answers on port 5000;
+# from the Mac it is localhost:5001 (deploy/k3d/cluster.yaml).
+image:
+  registry: k3d-flakehunter-registry:5000
+  tag: "" # set by up.sh
+
+# Created once by up.sh with keys postgres-password, admin-password and jwt-secret; never stored in git.
+secretName: flakehunter-secrets
+
+# Memory request = limit: the pod gets exactly this much, so the node is never overcommitted.
+services:
+  project-service:
+    port: 8081
+    memory: 512Mi
+    database: true
+  hunt-orchestrator:
+    port: 8082
+    memory: 768Mi # 512Mi was OOMKilled: Kafka, JPA and the Kubernetes client together need ~530 MB
+    database: true
+    kafka: true
+    launchesRunners: true # gets the runner ServiceAccount and settings (templates/runners.yaml)
+    env:
+      FLAKEHUNTER_PROJECT_SERVICE_URL: http://project-service:8081
+  result-aggregator:
+    port: 8083
+    memory: 512Mi
+    database: true
+    kafka: true
+    autoscaled: true # replicas come from KEDA (templates/keda.yaml)
+  api-gateway:
+    port: 8080
+    memory: 512Mi
+    env:
+      PROJECT_SERVICE_URL: http://project-service:8081
+      HUNT_ORCHESTRATOR_URL: http://hunt-orchestrator:8082
+      RESULT_AGGREGATOR_URL: http://result-aggregator:8083
+    secretEnv:
+      FLAKEHUNTER_ADMIN_PASSWORD: admin-password
+      FLAKEHUNTER_JWT_SECRET: jwt-secret
+
+web:
+  memory: 32Mi
+
+# Runner Jobs live in their own namespace. Its quota is all the memory they get together: with the defaults
+# (1.5 GB per runner, set in the Admin panel) about 2 run at once next to the platform in Docker's 7.8 GB VM.
+runners:
+  namespace: flakehunter-runners
+  memoryMb: 3072
+
+# Same sizes as deploy/presets/medium.env.
+postgres:
+  image: "" # POSTGRES_IMAGE from deploy/images.env, set by up.sh
+  sharedBuffers: 128MB
+  memory: 256Mi
+  storage: 2Gi
+
+kafka:
+  image: "" # KAFKA_IMAGE from deploy/images.env, set by up.sh
+  heap: -Xms512m -Xmx512m
+  memory: 768Mi
+  storage: 2Gi
+  testResultsRetentionDays: 3
+  eventsRetentionDays: 14
+
+# Scales result-aggregator on its consumer lag on test.results. KEDA itself is installed by up.sh.
+# Each replica takes 512Mi; raise maxReplicas on a bigger machine (test.results has 6 partitions, so 6 at most).
+keda:
+  maxReplicas: 2
+  lagThreshold: 5000 # unread results per replica before KEDA adds one
+
+prometheus:
+  image: "" # PROMETHEUS_IMAGE from deploy/images.env, set by up.sh
+  memory: 256Mi
+  retention: 1d
+
+grafana:
+  image: "" # GRAFANA_IMAGE from deploy/images.env, set by up.sh
+  memory: 384Mi # 256Mi was OOMKilled during its first-start database migrations

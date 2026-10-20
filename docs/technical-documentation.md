@@ -29,7 +29,7 @@ A flaky test passes and fails on the same code. Flaky tests waste CI time, train
 
 ### Non-goals
 
-- Languages other than Java (Maven/Gradle + JUnit 5) in v1.
+- Languages other than Java (Maven + JUnit 4 or 5) in v1. See ADR 0004.
 - Multi-tenant SaaS billing, teams or SSO.
 - Replacing CI. FlakeHunter runs hunts on demand or on PR, beside CI.
 - Auto-merging fixes. A human always approves.
@@ -49,25 +49,25 @@ Existing flaky-test tools mostly detect, track and quarantine. FlakeHunter's dis
 
 Java owns the core platform, Python owns only the AI agents, and everything runs in Docker on Kubernetes. Versions are targets; pin exact versions in Phase 0.
 
-| Area | Choice | Why |
-| --- | --- | --- |
-| Core services | Java 21, Spring Boot 3.x, Spring Cloud Gateway | Target-role stack; virtual threads for I/O-heavy services |
-| Stream processing | Kafka Streams (in result-aggregator) | Windowed per-test statistics without a separate cluster |
-| Agent service | Python 3.12, FastAPI, LangGraph | Best agent tooling; a real reason for a polyglot boundary |
-| LLM | Hosted APIs (Gemini / OpenAI), routed by task | Local models do not fit beside the cluster on 16 GB |
-| Frontend | React 18, TypeScript, Vite, TanStack Query | Live dashboard over SSE |
-| Messaging | Apache Kafka (KRaft, no ZooKeeper) | Durable async events, replay, consumer lag for scaling |
-| Database | PostgreSQL 16 (+ pgvector later, optional) | Relational state, outbox table |
-| Cache / locks | Redis (optional, Phase 3+) | Rate limits on LLM calls, short-lived locks |
-| Code-to-K8s | fabric8 Kubernetes client (Java) | Orchestrator creates Jobs and scales Deployments |
-| Containers | Docker, multi-stage builds, ARM64 + AMD64 images | Mac is ARM; cloud nodes may be AMD64 |
-| Local Kubernetes | k3d or OrbStack Kubernetes | Lighter than minikube on a MacBook Air |
-| Autoscaling | KEDA (Kafka scaler) | Scale on consumer lag, down to zero |
-| Packaging | Helm charts | One chart per service + an umbrella chart |
-| CI/CD | GitHub Actions; Argo CD optional | Build, test, push images, deploy |
-| Observability | OpenTelemetry, Prometheus, Grafana, Loki or plain logs, Tempo or Jaeger | Traces across Java, Kafka and Python |
-| Cloud | Azure (AKS or a VM running k3s) | Matches learning goal; tear down after demos |
-| Tests | JUnit 5, Testcontainers, pytest, Playwright (light) | Integration tests against real Kafka and Postgres |
+| Area              | Choice                                                                  | Why                                                       |
+| ----------------- | ----------------------------------------------------------------------- | --------------------------------------------------------- |
+| Core services     | Java 21, Spring Boot 3.x, Spring Cloud Gateway                          | Target-role stack; virtual threads for I/O-heavy services |
+| Stream processing | Plain Kafka consumers + SQL in result-aggregator (ADR 0005)             | Hunts are scored once at the end; Postgres holds the data |
+| Agent service     | Python 3.12, FastAPI, LangGraph                                         | Best agent tooling; a real reason for a polyglot boundary |
+| LLM               | Hosted APIs (Gemini / OpenAI), routed by task                           | Local models do not fit beside the cluster on 16 GB       |
+| Frontend          | React 18, TypeScript, Vite, TanStack Query                              | Live dashboard over SSE                                   |
+| Messaging         | Apache Kafka (KRaft, no ZooKeeper)                                      | Durable async events, replay, consumer lag for scaling    |
+| Database          | PostgreSQL 16 (+ pgvector later, optional)                              | Relational state, outbox table                            |
+| Cache / locks     | Redis (optional, Phase 3+)                                              | Rate limits on LLM calls, short-lived locks               |
+| Code-to-K8s       | fabric8 Kubernetes client (Java)                                        | Orchestrator creates Jobs and scales Deployments          |
+| Containers        | Docker, multi-stage builds, ARM64 + AMD64 images                        | Mac is ARM; cloud nodes may be AMD64                      |
+| Local Kubernetes  | k3d or OrbStack Kubernetes                                              | Lighter than minikube on a MacBook Air                    |
+| Autoscaling       | KEDA (Kafka scaler)                                                     | Scale on consumer lag, down to zero                       |
+| Packaging         | Helm charts                                                             | One chart per service + an umbrella chart                 |
+| CI/CD             | GitHub Actions; Argo CD optional                                        | Build, test, push images, deploy                          |
+| Observability     | OpenTelemetry, Prometheus, Grafana, Loki or plain logs, Tempo or Jaeger | Traces across Java, Kafka and Python                      |
+| Cloud             | Azure (AKS or a VM running k3s)                                         | Matches learning goal; tear down after demos              |
+| Tests             | JUnit 5, Testcontainers, pytest, Playwright (light)                     | Integration tests against real Kafka and Postgres         |
 
 ### Constraints
 
@@ -81,20 +81,20 @@ Java owns the core platform, Python owns only the AI agents, and everything runs
 
 A **hunt** is the unit of work: one repository at one commit, rerun many times, producing flaky-test findings that agents then diagnose and fix.
 
-| Term | Meaning |
-| --- | --- |
-| Project | A connected repository: URL, default branch, build tool, test command, settings |
-| Hunt | One investigation of a project at a specific commit SHA, with a budget (runs, pods, LLM tokens) |
-| Strategy | How a run is perturbed: `BASELINE`, `SHUFFLE_ORDER`, `RANDOM_SEED`, `PARALLEL`, `CPU_THROTTLE`, `TIMEZONE`, `ISOLATED` |
-| Run | One execution of the suite (or a subset) in one runner pod with one strategy and seed |
-| Test case | A test identified by `class#method`, stable across runs |
-| Test result | Outcome of one test in one run: `PASSED`, `FAILED`, `ERROR`, `SKIPPED`, duration, failure message, stack trace hash |
-| Flakiness score | Statistical estimate that a test is flaky, from its outcomes across runs and strategies |
-| Finding | A test confirmed as flaky in a hunt, with evidence (failure rate, which strategies trigger it) |
-| Experiment | A targeted run requested by an agent to test a hypothesis (for example: run test A after test B, 50 times) |
-| Diagnosis | The agents' conclusion: root-cause category, explanation, evidence, confidence |
-| Fix proposal | A code patch (unified diff) plus rationale |
-| Verification | Reruns of the patched code; the fix passes only if the test passes every time over the required count |
+| Term            | Meaning                                                                                                                |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Project         | A connected repository: URL, default branch, build tool, test command, settings                                        |
+| Hunt            | One investigation of a project at a specific commit SHA, with a budget (runs, pods, LLM tokens)                        |
+| Strategy        | How a run is perturbed: `BASELINE`, `SHUFFLE_ORDER`, `RANDOM_SEED`, `PARALLEL`, `CPU_THROTTLE`, `TIMEZONE`, `ISOLATED` |
+| Run             | One execution of the suite (or a subset) in one runner pod with one strategy and seed                                  |
+| Test case       | A test identified by `class#method`, stable across runs                                                                |
+| Test result     | Outcome of one test in one run: `PASSED`, `FAILED`, `ERROR`, `SKIPPED`, duration, failure message, stack trace hash    |
+| Flakiness score | Statistical estimate that a test is flaky, from its outcomes across runs and strategies                                |
+| Finding         | A test confirmed as flaky in a hunt, with evidence (failure rate, which strategies trigger it)                         |
+| Experiment      | A targeted run requested by an agent to test a hypothesis (for example: run test A after test B, 50 times)             |
+| Diagnosis       | The agents' conclusion: root-cause category, explanation, evidence, confidence                                         |
+| Fix proposal    | A code patch (unified diff) plus rationale                                                                             |
+| Verification    | Reruns of the patched code; the fix passes only if the test passes every time over the required count                  |
 
 ### Root-cause categories
 
@@ -102,7 +102,7 @@ A **hunt** is the unit of work: one repository at one commit, rerun many times, 
 
 ### Hunt lifecycle
 
-`CREATED` → `PREPARING` (clone, build runner image) → `RUNNING` (baseline + perturbed runs) → `ANALYZING` (aggregate, detect) → `DIAGNOSING` (agents, only if AI is on) → `VERIFYING` → `COMPLETED`
+`CREATED` → `PREPARING` (clone, resolve dependencies, compile tests once) → `RUNNING` (baseline + perturbed runs) → `ANALYZING` (aggregate, detect) → `DIAGNOSING` (agents, only if AI is on) → `VERIFYING` → `COMPLETED`
 
 Side states: `FAILED` (unrecoverable error), `CANCELLED` (by user), `AWAITING_AI` (findings ready, AI switched off). A hunt in `AWAITING_AI` moves to `DIAGNOSING` automatically when AI comes back.
 
@@ -117,7 +117,7 @@ Runner pods are created by the orchestrator through the Kubernetes API and talk 
 ### One hunt, end to end
 
 1. User starts a hunt in the web UI → gateway → hunt-orchestrator (`POST /api/hunts`).
-2. Orchestrator prepares the runner image, plans runs, writes them to Postgres with outbox events, and creates runner Jobs.
+2. Orchestrator prepares the workspace (clone + compile once), plans runs, writes them to Postgres with outbox events, and creates runner Jobs.
 3. Runner pods execute tests and publish `test.results` and `run.completed`.
 4. result-aggregator scores tests; when all runs finish it publishes `finding.detected` for each flaky test and `analysis.completed`.
 5. agent-service consumes findings, requests experiments (`experiment.requested`), which the orchestrator runs as more Jobs.
@@ -128,15 +128,15 @@ Runner pods are created by the orchestrator through the Kubernetes API and talk 
 
 Six deployable services plus a short-lived runner image. Each service owns its own tables and talks to others through Kafka; synchronous REST is used only from the gateway inward and for a few queries.
 
-| Service | Language | Owns | Scales on | Boundary reason |
-| --- | --- | --- | --- | --- |
-| api-gateway | Java (Spring Cloud Gateway) | Routing, auth, rate limits, SSE fan-out | Requests | Single entry point |
-| project-service | Java | Projects, settings, GitHub webhooks, PR comments | Requests | Integration and config, low load |
-| hunt-orchestrator | Java | Hunts, runs, experiments, K8s Jobs, AI switch | Hunts in flight | Owns the saga and the K8s API |
-| result-aggregator | Java (Kafka Streams) | Test results, flakiness scores, findings | Kafka lag on `test.results` | High-volume stream, different scaling |
-| agent-service | Python | Diagnoses, fix proposals, LLM usage | Kafka lag on `finding.detected` (KEDA, min 0) | Different language, can be switched off |
-| web | React (static, Nginx) | UI | Requests | Frontend |
-| test-runner (Job image) | Java + Maven/Gradle + agent | Nothing persistent | One pod per run | Isolation of untrusted code |
+| Service                 | Language                    | Owns                                             | Scales on                                     | Boundary reason                         |
+| ----------------------- | --------------------------- | ------------------------------------------------ | --------------------------------------------- | --------------------------------------- |
+| api-gateway             | Java (Spring Cloud Gateway) | Routing, auth, rate limits, SSE fan-out          | Requests                                      | Single entry point                      |
+| project-service         | Java                        | Projects, settings, GitHub webhooks, PR comments | Requests                                      | Integration and config, low load        |
+| hunt-orchestrator       | Java                        | Hunts, runs, experiments, K8s Jobs, AI switch    | Hunts in flight                               | Owns the saga and the K8s API           |
+| result-aggregator       | Java                        | Test results, flakiness scores, findings         | Kafka lag on `test.results`                   | High-volume stream, different scaling   |
+| agent-service           | Python                      | Diagnoses, fix proposals, LLM usage              | Kafka lag on `finding.detected` (KEDA, min 0) | Different language, can be switched off |
+| web                     | React (static, Nginx)       | UI                                               | Requests                                      | Frontend                                |
+| test-runner (Job image) | Java + Maven + publisher    | Nothing persistent                               | One pod per run                               | Isolation of untrusted code             |
 
 ### api-gateway
 
@@ -157,7 +157,7 @@ Six deployable services plus a short-lived runner image. Each service owns its o
 - `POST /api/hunts` — start a hunt `{projectId, commitSha?, budget}`; returns hunt id. Also consumes `hunt.requested`.
 - `GET /api/hunts/{id}`, `POST /api/hunts/{id}/cancel`.
 - `GET /api/admin/ai` / `PUT /api/admin/ai {enabled}` — the AI kill switch (section 8).
-- Prepares the hunt: clones the repo at the SHA, builds a runner image with dependencies cached, pushes it to the local registry.
+- Prepares the hunt: picks the JDK base image, clones the repo at the SHA, resolves dependencies and runs `test-compile` once into a workspace that every run reuses (ADR 0003).
 - Plans runs from strategies and budget, creates one Kubernetes Job per run (fabric8), enforces max parallel pods.
 - Consumes `experiment.requested` from agents, validates it against the budget, runs it as Jobs, publishes `experiment.completed`.
 - Consumes `run.completed` and `analysis.completed` to advance the hunt state machine (saga). Writes state changes and events in one transaction via the outbox.
@@ -166,7 +166,7 @@ Six deployable services plus a short-lived runner image. Each service owns its o
 ### result-aggregator
 
 - Consumes `test.results` (high volume), idempotent on `(runId, testId)`.
-- Kafka Streams keyed by `huntId:testId`: counts outcomes per strategy, failure-message clusters.
+- Stores results in Postgres; counts outcomes per strategy and failure clusters with SQL (ADR 0005).
 - When all runs of a hunt complete, computes flakiness scores (section 9) and publishes `finding.detected` per flaky test, then `analysis.completed`.
 - `GET /api/findings?huntId=`, `GET /api/findings/{id}` (with evidence, diagnosis, fix, verification once available).
 - Consumes `diagnosis.completed`, `fix.proposed`, `fix.verified` to keep the finding view complete (CQRS-style read model).
@@ -181,39 +181,42 @@ Six deployable services plus a short-lived runner image. Each service owns its o
 
 ### test-runner (Kubernetes Job)
 
-- Image built per project + commit: JDK, build tool, dependencies pre-fetched, and the FlakeHunter JUnit 5 extension/listener.
+- One base image per JDK major version (8, 11, 17, 21): Temurin, Maven 3.9.16 and the publisher. Nothing is built per commit (ADR 0003).
+- Mounts the hunt's prepared workspace and dependency cache, and only runs tests.
 - Inputs via env: `HUNT_ID`, `RUN_ID`, `STRATEGY`, `SEED`, `TEST_FILTER`, `REPEAT`, `TZ`.
-- Applies the strategy (JUnit `MethodOrderer.Random` with seed, parallel config, `TZ`, CPU limits set on the Job).
-- The listener publishes each test result to `test.results` (or writes JUnit XML that a sidecar publishes — decide in Phase 1).
-- Publishes `run.completed` with exit status, duration, totals.
+- Applies the strategy: runs Surefire 3.x explicitly with `-Dsurefire.runOrder=random` and the seed, plus parallel config, `TZ`, and CPU limits set on the Job.
+- After the build exits, the publisher in the same container parses Surefire's JUnit XML, publishes one `test.results` event per test, then `run.completed` with exit status, duration and totals. If the build crashed, `run.completed` still goes out with zero results (ADR 0002).
 - No network except Kafka and the Maven proxy; `activeDeadlineSeconds` and `ttlSecondsAfterFinished` set.
 
 ### web
 
 - Pages: Projects, Hunt detail (live run grid, pod count, progress), Findings list, Finding detail (evidence charts, agent reasoning timeline, diff, verification), Admin (AI switch, budgets, LLM usage).
+- Settings are picked from preset options, not typed. The server computes the options from the machine (`docker info`: memory, CPUs) and rejects anything outside them.
+  - Runtime settings (UI dropdowns, applied to the next hunt): hunt budget (`maxRuns`, `maxParallelPods`, e.g. 1/2/4 when the cap is 4), memory per runner, total runner memory. Stored in `system_settings`. Admin also has a "Clear Maven cache" button, refused while a hunt is running.
+  - Startup settings (need a container restart): Kafka heap, Postgres memory, Kafka retention. Chosen once from a size preset in `deploy/` (small 8 GB / medium 16 GB / large 32 GB); the UI shows them read-only.
 - Live updates via SSE; data via TanStack Query.
 
 ## 6. Kafka event design
 
 Every state change that another service cares about is a Kafka event; keys are chosen so that events for one hunt or one test stay ordered on one partition.
 
-| Topic | Producer | Consumers | Key | Partitions (local) |
-| --- | --- | --- | --- | --- |
-| `hunt.requested` | project-service, gateway | hunt-orchestrator | projectId | 3 |
-| `hunt.status` | hunt-orchestrator (outbox) | gateway (SSE), project-service | huntId | 3 |
-| `run.scheduled` | hunt-orchestrator (outbox) | (audit, UI) | huntId | 3 |
-| `test.results` | test-runner | result-aggregator | huntId:testId | 6 |
-| `run.completed` | test-runner | hunt-orchestrator, result-aggregator | huntId | 3 |
-| `analysis.completed` | result-aggregator | hunt-orchestrator | huntId | 3 |
-| `finding.detected` | result-aggregator | agent-service | findingId | 6 |
-| `experiment.requested` | agent-service | hunt-orchestrator | findingId | 3 |
-| `experiment.completed` | hunt-orchestrator | agent-service | findingId | 3 |
-| `diagnosis.completed` | agent-service | result-aggregator, gateway | findingId | 3 |
-| `fix.proposed` | agent-service | result-aggregator | findingId | 3 |
-| `verification.requested` | agent-service | hunt-orchestrator | findingId | 3 |
-| `fix.verified` | hunt-orchestrator | result-aggregator, project-service | findingId | 3 |
-| `ai.control` | hunt-orchestrator | agent-service, gateway | "ai" | 1 |
-| `*.dlq` | any consumer | manual replay tool | original key | 1 |
+| Topic                    | Producer                   | Consumers                            | Key           | Partitions (local) |
+| ------------------------ | -------------------------- | ------------------------------------ | ------------- | ------------------ |
+| `hunt.requested`         | project-service, gateway   | hunt-orchestrator                    | projectId     | 3                  |
+| `hunt.status`            | hunt-orchestrator (outbox) | gateway (SSE), project-service       | huntId        | 3                  |
+| `run.scheduled`          | hunt-orchestrator (outbox) | (audit, UI)                          | huntId        | 3                  |
+| `test.results`           | test-runner                | result-aggregator                    | huntId:testId | 6                  |
+| `run.completed`          | test-runner                | hunt-orchestrator, result-aggregator | huntId        | 3                  |
+| `analysis.completed`     | result-aggregator          | hunt-orchestrator                    | huntId        | 3                  |
+| `finding.detected`       | result-aggregator          | agent-service                        | findingId     | 6                  |
+| `experiment.requested`   | agent-service              | hunt-orchestrator                    | findingId     | 3                  |
+| `experiment.completed`   | hunt-orchestrator          | agent-service                        | findingId     | 3                  |
+| `diagnosis.completed`    | agent-service              | result-aggregator, gateway           | findingId     | 3                  |
+| `fix.proposed`           | agent-service              | result-aggregator                    | findingId     | 3                  |
+| `verification.requested` | agent-service              | hunt-orchestrator                    | findingId     | 3                  |
+| `fix.verified`           | hunt-orchestrator          | result-aggregator, project-service   | findingId     | 3                  |
+| `ai.control`             | hunt-orchestrator          | agent-service, gateway               | "ai"          | 1                  |
+| `*.dlq`                  | any consumer               | manual replay tool                   | original key  | 1                  |
 
 ### Envelope (all events)
 
@@ -225,7 +228,7 @@ Every state change that another service cares about is a Kafka event; keys are c
   "occurredAt": "2026-11-02T10:15:00Z",
   "huntId": "uuid",
   "traceparent": "00-...",
-  "payload": { }
+  "payload": {}
 }
 ```
 
@@ -329,13 +332,13 @@ Raw test logs and stack traces larger than a few KB go to object storage (MinIO 
 
 Five agents in one LangGraph graph per finding: the investigator forms hypotheses and proves them with real experiments on Kubernetes before anyone writes a fix. Agents never execute code themselves; they ask the platform to.
 
-| Agent | Job | Tools | Model tier |
-| --- | --- | --- | --- |
-| Triage | Read the finding evidence, pick likely categories, set an investigation plan | `get_finding`, `get_failure_clusters` | Small/cheap |
-| Investigator | Form hypotheses, read code and logs, request experiments, decide when the cause is proven | `read_file`, `search_code`, `get_test_logs`, `diff_pass_fail_logs`, `request_experiment`, `get_experiment_result` | Large |
-| Classifier | Map the proven cause to a root-cause category with a confidence and evidence list | none (structured output) | Small |
-| Fix writer | Produce a minimal unified diff that removes the cause, plus rationale | `read_file`, `search_code` | Large |
-| Critic | Review the diff: does it hide the failure (added retries, `@Disabled`, longer sleeps)? Is it minimal? Approve or send back | `read_file` | Large |
+| Agent        | Job                                                                                                                        | Tools                                                                                                             | Model tier  |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------- |
+| Triage       | Read the finding evidence, pick likely categories, set an investigation plan                                               | `get_finding`, `get_failure_clusters`                                                                             | Small/cheap |
+| Investigator | Form hypotheses, read code and logs, request experiments, decide when the cause is proven                                  | `read_file`, `search_code`, `get_test_logs`, `diff_pass_fail_logs`, `request_experiment`, `get_experiment_result` | Large       |
+| Classifier   | Map the proven cause to a root-cause category with a confidence and evidence list                                          | none (structured output)                                                                                          | Small       |
+| Fix writer   | Produce a minimal unified diff that removes the cause, plus rationale                                                      | `read_file`, `search_code`                                                                                        | Large       |
+| Critic       | Review the diff: does it hide the failure (added retries, `@Disabled`, longer sleeps)? Is it minimal? Approve or send back | `read_file`                                                                                                       | Large       |
 
 ### Graph flow
 
@@ -377,15 +380,15 @@ A test is flaky when it both passes and fails on the same commit; the strategy t
 
 ### Strategies
 
-| Strategy | How it is applied | Usually exposes |
-| --- | --- | --- |
-| `BASELINE` | Default order, default config | Truly random flakiness (async waits, network) |
-| `SHUFFLE_ORDER` | JUnit `MethodOrderer.Random` + class order shuffle with a recorded seed | Order dependency, shared state |
-| `RANDOM_SEED` | Different seeds for any seedable randomness the runner controls | Unseeded randomness |
-| `PARALLEL` | JUnit parallel execution enabled | Concurrency, shared static state |
-| `CPU_THROTTLE` | Low CPU limit on the Job (for example 250m) | Timing assumptions, sleeps, races |
-| `TIMEZONE` | `TZ` set to UTC, Asia/Kolkata, America/Los\_Angeles, Pacific/Kiritimati | Time and date bugs |
-| `ISOLATED` | One test alone, repeated | Separates order effects from intrinsic flakiness |
+| Strategy        | How it is applied                                                                         | Usually exposes                                  |
+| --------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `BASELINE`      | Default order, default config                                                             | Truly random flakiness (async waits, network)    |
+| `SHUFFLE_ORDER` | Surefire random class order with a recorded seed; plus `MethodOrderer.Random` for JUnit 5 | Order dependency, shared state                   |
+| `RANDOM_SEED`   | Different seeds for any seedable randomness the runner controls                           | Unseeded randomness                              |
+| `PARALLEL`      | JUnit parallel execution enabled                                                          | Concurrency, shared static state                 |
+| `CPU_THROTTLE`  | Low CPU limit on the Job (for example 250m)                                               | Timing assumptions, sleeps, races                |
+| `TIMEZONE`      | `TZ` set to UTC, Asia/Kolkata, America/Los\_Angeles, Pacific/Kiritimati                   | Time and date bugs                               |
+| `ISOLATED`      | One test alone, repeated                                                                  | Separates order effects from intrinsic flakiness |
 
 ### Default hunt plan
 
@@ -407,16 +410,18 @@ For each test with n runs and f failures (excluding skips):
 
 - Low-rate flakiness (under 1%) needs many runs; local budgets will miss some. Report it as "not detected within budget", not "not flaky".
 - Tests that depend on external services are flagged `NETWORK` and not fixed automatically.
+- JUnit 4 targets are shuffled by class only, so order dependencies between methods of the same JUnit 4 class are missed (ADR 0004).
+- Implementation-dependent tests (relying on HashMap or reflection order) are not exposed by reordering. They need a NonDex strategy, which is not planned for v1. Phase 0 found that some IDoFT "OD" tests are really this kind.
 
 ## 10. Kubernetes and deployment
 
 Three environments share one set of Helm charts: Docker Compose for fast local development, k3d on the Mac for the real Kubernetes setup, and a short-lived Azure cluster for the public demo.
 
-| Environment | Runs on | Used for |
-| --- | --- | --- |
-| `dev` | Docker Compose | Phase 1 development, fastest feedback |
-| `local-k8s` | k3d (or OrbStack K8s) + local registry | Jobs, KEDA, Helm, kill switch |
-| `cloud` | AKS (or Azure VM with k3s) | Demo, benchmark runs, recording |
+| Environment | Runs on                                | Used for                              |
+| ----------- | -------------------------------------- | ------------------------------------- |
+| `dev`       | Docker Compose                         | Phase 1 development, fastest feedback |
+| `local-k8s` | k3d (or OrbStack K8s) + local registry | Jobs, KEDA, Helm, kill switch         |
+| `cloud`     | AKS (or Azure VM with k3s)             | Demo, benchmark runs, recording       |
 
 ### Namespaces
 
@@ -426,17 +431,17 @@ Three environments share one set of Helm charts: Docker Compose for fast local d
 
 ### Workloads
 
-| Workload | Kind | Replicas (local) | Notes |
-| --- | --- | --- | --- |
-| api-gateway | Deployment | 1 | Ingress (Traefik in k3d) |
-| project-service | Deployment | 1 |  |
-| hunt-orchestrator | Deployment | 1 (2 in cloud) | ServiceAccount with RBAC to create Jobs in `flakehunter-runners` and scale `agent-service` |
-| result-aggregator | Deployment | 1, KEDA up to 3 | Scaled on `test.results` lag |
-| agent-service | Deployment | KEDA 0–3 | Scaled on `finding.detected` lag; paused by kill switch |
-| web | Deployment | 1 | Nginx static |
-| test-runner | Job | per run | `backoffLimit: 0`, `activeDeadlineSeconds`, `ttlSecondsAfterFinished: 300` |
-| Kafka | StatefulSet (Strimzi or Bitnami chart) | 1 broker | KRaft |
-| Postgres | StatefulSet | 1 | PVC |
+| Workload          | Kind                                   | Replicas (local) | Notes                                                                                      |
+| ----------------- | -------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------ |
+| api-gateway       | Deployment                             | 1                | Ingress (Traefik in k3d)                                                                   |
+| project-service   | Deployment                             | 1                |                                                                                            |
+| hunt-orchestrator | Deployment                             | 1 (2 in cloud)   | ServiceAccount with RBAC to create Jobs in `flakehunter-runners` and scale `agent-service` |
+| result-aggregator | Deployment                             | 1, KEDA up to 2  | Scaled on `test.results` lag                                                               |
+| agent-service     | Deployment                             | KEDA 0–3         | Scaled on `finding.detected` lag; paused by kill switch                                    |
+| web               | Deployment                             | 1                | Nginx static                                                                               |
+| test-runner       | Job                                    | per run          | `backoffLimit: 0`, `activeDeadlineSeconds`, `ttlSecondsAfterFinished: 300`                 |
+| Kafka             | StatefulSet (Strimzi or Bitnami chart) | 1 broker         | KRaft                                                                                      |
+| Postgres          | StatefulSet                            | 1                | PVC                                                                                        |
 
 Every Deployment has readiness/liveness probes (Spring Actuator, FastAPI `/health`), resource requests and limits, and graceful shutdown.
 
@@ -470,15 +475,15 @@ One hunt should be traceable end to end in Grafana, any pod should be killable w
 
 ### Reliability
 
-| Failure | Behaviour |
-| --- | --- |
-| Runner pod crashes or times out | Run marked `FAILED`/`TIMED_OUT`; excluded from scoring; retried once if budget allows |
-| result-aggregator restarts | Kafka Streams resumes from committed offsets and state store changelog; inserts are idempotent |
-| hunt-orchestrator restarts mid-hunt | State in Postgres; reconciler loop compares DB runs with live Jobs and repairs |
-| Kafka unavailable | Outbox rows accumulate; relay publishes when Kafka is back |
-| agent-service killed (or AI off) | Sessions checkpointed; unfinished findings re-consumed; hunt waits in `AWAITING_AI` |
-| LLM API errors / rate limits | Retry with backoff and jitter, circuit breaker (Resilience4j-style in Python via tenacity), fall back to a second provider |
-| Poison message | 3 retries, then `.dlq` topic with error details; replay tool |
+| Failure                             | Behaviour                                                                                                                  |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Runner pod crashes or times out     | Run marked `FAILED`/`TIMED_OUT`; excluded from scoring; retried once if budget allows                                      |
+| result-aggregator restarts          | Consumers resume from committed offsets; inserts are idempotent; Analyzer picks up unanalyzed hunts                        |
+| hunt-orchestrator restarts mid-hunt | State in Postgres; on startup the reconciler resumes unfinished hunts and reattaches to their Jobs by name                 |
+| Kafka unavailable                   | Outbox rows accumulate; relay publishes when Kafka is back                                                                 |
+| agent-service killed (or AI off)    | Sessions checkpointed; unfinished findings re-consumed; hunt waits in `AWAITING_AI`                                        |
+| LLM API errors / rate limits        | Retry with backoff and jitter, circuit breaker (Resilience4j-style in Python via tenacity), fall back to a second provider |
+| Poison message                      | 3 retries, then `.dlq` topic with error details; replay tool                                                               |
 
 ### Security
 
@@ -499,11 +504,11 @@ flakehunter/
 │   ├── api-gateway/            # Spring Cloud Gateway
 │   ├── project-service/        # Spring Boot
 │   ├── hunt-orchestrator/      # Spring Boot + fabric8
-│   ├── result-aggregator/      # Spring Boot + Kafka Streams
+│   ├── result-aggregator/      # Spring Boot, Kafka consumers + SQL scoring
 │   └── agent-service/          # Python, FastAPI, LangGraph
 ├── runner/
-│   ├── junit-extension/        # JUnit 5 listener that publishes results
-│   └── images/                 # base runner Dockerfiles (Maven, Gradle)
+│   ├── publisher/              # parses JUnit XML, publishes test.results + run.completed
+│   └── images/                 # base runner Dockerfiles, one per JDK
 ├── web/                        # React + Vite + TypeScript
 ├── libs/
 │   └── events/                 # shared event schemas (JSON Schema) + generated Java/Python types
@@ -533,32 +538,33 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 ### Phase 0 — Prove the core (18–26 Oct)
 
-- [ ] Pick 2–3 public Java repos with known flaky tests
-- [ ] Script that clones a repo, runs its tests N times in Docker with shuffled order and seeds, and parses JUnit XML
-- [ ] Script reports which tests both passed and failed
-- [ ] Pin tool versions; create the monorepo skeleton
-- [ ] Settle the open decisions about runner result transport and image strategy
+- [x] Pick 2–3 public Java repos with known flaky tests (`benchmark/targets.md`)
+- [x] Script that clones a repo, runs its tests N times in Docker with shuffled order and seeds, and parses JUnit XML (`benchmark/hunt.py`)
+- [x] Script reports which tests both passed and failed
+- [x] Pin tool versions; create the monorepo skeleton (ADR 0001)
+- [x] Settle the open decisions about runner result transport and image strategy (ADRs 0002–0004)
 
-**Exit:** a flaky test detected on a real repo by a dumb script.
+**Exit:** a flaky test detected on a real repo by a dumb script. Met on 2026-10-19: fastjson's `DateTest4_indian` and `DateTest5_iso8601` were flagged in 10 runs.
 
 ### Phase 1 — Platform on Docker Compose (27 Oct – 16 Nov)
 
-- [ ] Postgres, Kafka (KRaft), Compose file
-- [ ] project-service and hunt-orchestrator with Flyway, outbox relay, hunt state machine
-- [ ] Runner image + JUnit 5 extension publishing `test.results` and `run.completed`
-- [ ] result-aggregator with Kafka Streams, scoring, `finding.detected`
-- [ ] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
-- [ ] Testcontainers integration tests for the event flow
+- [x] Postgres, Kafka (KRaft), Compose file
+- [x] project-service and hunt-orchestrator with Flyway, outbox relay, hunt state machine
+- [x] Runner base images + publisher sending `test.results` and `run.completed`; remove `runner/junit-extension`
+- [x] result-aggregator with scoring, `finding.detected`, `analysis.completed` (SQL, not Kafka Streams: ADR 0005)
+- [x] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
+- [x] Machine-aware preset options: start-hunt budget dropdowns, Admin Runner panel (memory, clear Maven cache), size presets in `deploy/` for Kafka/Postgres
+- [x] Testcontainers integration tests for the event flow
 
 **Exit:** start a hunt from the UI, runner containers run, a flaky test shows up as a finding.
 
 ### Phase 2 — Kubernetes (17 Nov – 7 Dec)
 
-- [ ] k3d cluster with local registry; Helm charts for every service + umbrella
-- [ ] Orchestrator creates runner Jobs with fabric8; RBAC, quotas, NetworkPolicy
-- [ ] Reconciler loop for DB vs live Jobs
-- [ ] KEDA for result-aggregator on lag
-- [ ] Prometheus + Grafana with platform dashboard
+- [x] k3d cluster with local registry; Helm charts for every service + umbrella
+- [x] Orchestrator creates runner Jobs with fabric8; RBAC, quotas, NetworkPolicy
+- [x] Reconciler for DB vs live Jobs (on startup: resumes CREATED/PREPARING/RUNNING hunts, reattaches to their Jobs by name)
+- [x] KEDA for result-aggregator on lag (1 to `keda.maxReplicas`, default 2 for the laptop)
+- [x] Prometheus + Grafana with platform dashboard
 
 **Exit:** a hunt fans out runner pods in the cluster and pods clean up after themselves; killing any platform pod mid-hunt does not lose the hunt.
 
@@ -608,7 +614,7 @@ The project is judged by one honest benchmark number and one live demo, not by f
 ### Interview talking points
 
 - Why each service is separate, and what would merge if traffic were small.
-- Exactly-once vs at-least-once: outbox, idempotent consumers, Kafka Streams state.
+- Exactly-once vs at-least-once: outbox, idempotent consumers.
 - Why KEDA on lag instead of CPU-based HPA.
 - The saga for a hunt and how the reconciler repairs drift between DB and live Jobs.
 - Agents that wait on real experiments: checkpointing and resuming across pods.
@@ -619,8 +625,9 @@ The project is judged by one honest benchmark number and one live demo, not by f
 
 ### Open decisions (settle in Phase 0–1, record as ADRs)
 
-- [ ] Result transport from runner: listener publishes directly to Kafka, or JUnit XML + sidecar publisher
-- [ ] Runner image per commit vs one base image with dependency cache volume
+- [x] Result transport from runner: JUnit XML + publisher in the same container (ADR 0002)
+- [x] Runner image: base image per JDK + compile once per hunt (ADR 0003)
+- [x] Test frameworks: JUnit 4 and 5 (ADR 0004)
 - [ ] Kafka on K8s: Strimzi operator vs Bitnami chart
 - [ ] JSON Schema now vs Avro + Schema Registry later
 - [ ] LLM providers and default models per agent tier
