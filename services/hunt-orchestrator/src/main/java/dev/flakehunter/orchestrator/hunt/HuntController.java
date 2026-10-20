@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
@@ -30,10 +31,14 @@ class HuntController {
         this.hunts = hunts;
     }
 
+    // Returns as soon as the hunt is saved; preparing and running continue in the background (HuntExecution).
     @PostMapping
-    ResponseEntity<HuntResponse> create(@Valid @RequestBody CreateHuntRequest request) {
-        Hunt hunt = huntService.start(request);
-        return ResponseEntity.created(URI.create("/api/hunts/" + hunt.getId())).body(HuntResponse.from(hunt));
+    ResponseEntity<?> create(@Valid @RequestBody CreateHuntRequest request) {
+        return huntService.start(request)
+                .<ResponseEntity<?>>map(hunt -> ResponseEntity.created(URI.create("/api/hunts/" + hunt.getId()))
+                        .body(HuntResponse.from(hunt)))
+                .orElseGet(() -> ResponseEntity.unprocessableContent().body(ProblemDetail.forStatusAndDetail(
+                        HttpStatus.UNPROCESSABLE_CONTENT, "Project " + request.projectId() + " not found")));
     }
 
     // A plain read has no rule to enforce, so it goes straight to the repository.
@@ -41,6 +46,12 @@ class HuntController {
     HuntResponse get(@PathVariable UUID id) {
         return hunts.findById(id).map(HuntResponse::from)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Hunt " + id + " not found"));
+    }
+
+    @ExceptionHandler(RestClientException.class)
+    ProblemDetail projectServiceDown(RestClientException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "project-service could not be reached; try again shortly");
     }
 
     // Same as project-service: Spring's default 400 body omits which fields failed.

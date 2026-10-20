@@ -14,12 +14,13 @@ FROM ${MAVEN_IMAGE}
 # Kafka 4 clients need Java 11+, but targets like fastjson need JDK 8, so the publisher brings its own runtime.
 COPY --from=publisher-jre /opt/java/openjdk /opt/publisher-jre
 COPY publisher/build/install/publisher /opt/publisher
-COPY images/entrypoint.sh /opt/flakehunter/entrypoint.sh
+COPY images/entrypoint.sh images/prepare.sh /opt/flakehunter/
 
 # The tests are untrusted code: never run them as root (tech doc section 11).
+# The mount points exist and belong to the runner, so new Docker volumes mounted there do too.
 RUN useradd --uid 10001 --create-home runner \
-    && mkdir /workspace && chown runner /workspace \
-    && chmod 0755 /opt/flakehunter/entrypoint.sh
+    && mkdir /workspace /home/runner/.m2 && chown runner /workspace /home/runner/.m2 \
+    && chmod 0755 /opt/flakehunter/*.sh
 USER 10001
 WORKDIR /workspace
 

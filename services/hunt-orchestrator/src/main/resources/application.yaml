@@ -16,8 +16,14 @@ spring:
       ddl-auto: validate # Flyway owns the schema; Hibernate only checks it matches.
     properties:
       hibernate.default_schema: hunt
+  threads:
+    virtual:
+      enabled: true # hunts wait on containers for minutes; virtual threads make that waiting cheap
   kafka:
     bootstrap-servers: localhost:9092
+    consumer:
+      group-id: hunt-orchestrator
+      auto-offset-reset: earliest # a new group must not skip run.completed events sent before it started
     producer:
       # Tech doc section 6: a send counts only once every replica has it, and retries never duplicate.
       acks: all
@@ -26,6 +32,18 @@ spring:
   mvc:
     problemdetails:
       enabled: true # Errors as RFC 7807 problem details.
+
+flakehunter:
+  project-service-url: http://localhost:8081
+  runner:
+    # Built by runner/images/build.sh; the JDK number is appended.
+    image-prefix: flakehunter/runner:jdk
+    # Runner containers join the Compose network and reach Kafka by its internal name.
+    network: flakehunter_default
+    kafka-bootstrap-servers: kafka:29092
+    maven-cache-volume: flakehunter-runner-m2
+    prepare-timeout: 15m
+    run-timeout: 30m
 
 server:
   port: 8082
