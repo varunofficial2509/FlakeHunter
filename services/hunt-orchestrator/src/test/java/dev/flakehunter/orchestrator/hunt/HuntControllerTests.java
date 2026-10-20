@@ -63,7 +63,7 @@ class HuntControllerTests {
 
     @BeforeEach
     void machineFitsFourRunners() {
-        when(docker.machine()).thenReturn(new DockerRunner.Machine(8_392_605_696L, 10));
+        when(docker.machine()).thenReturn(new DockerRunner.Machine(8_392_605_696L, 10, 1L << 30));
     }
 
     @BeforeEach

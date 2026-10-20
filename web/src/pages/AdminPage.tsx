@@ -45,8 +45,9 @@ export function AdminPage() {
     <>
       <h1>Admin: runners</h1>
       <p>
-        Docker has {gb(r.dockerMemoryMb)} and {r.dockerCpus} CPUs. About 1 GB of
-        that is kept for Kafka and Postgres. Changes apply to the next hunt.
+        Docker has {gb(r.dockerMemoryMb)} and {r.dockerCpus} CPUs;{" "}
+        {gb(r.infraMemoryMb)} of that is kept for Kafka and Postgres (set by the
+        deploy preset). Changes apply to the next hunt.
       </p>
 
       <form onSubmit={submit}>

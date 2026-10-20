@@ -34,19 +34,19 @@ class HuntRulesTests {
         Limits runner = new Limits(DataSize.ofMegabytes(1536), DataSize.ofGigabytes(6));
 
         // This laptop: 7.8 GB VM, 10 CPUs. 6 GB of runners fit, so 4 at once.
-        HuntOptions laptop = HuntOptions.of(new Machine(8_392_605_696L, 10), runner);
+        HuntOptions laptop = HuntOptions.of(new Machine(8_392_605_696L, 10, 1L << 30), runner);
         assertThat(laptop.maxParallelPods()).containsExactly(1, 2, 4);
         assertThat(laptop.defaults()).isEqualTo(new Budget(40, 4));
         assertThat(laptop.allows(new Budget(40, 8))).isFalse();
         assertThat(laptop.allows(new Budget(15, 2))).isFalse(); // only the listed run counts
 
         // A small VM: 4 GB minus 1 GB for Kafka and Postgres leaves room for 2 runners.
-        HuntOptions small = HuntOptions.of(new Machine(4L << 30, 8), runner);
+        HuntOptions small = HuntOptions.of(new Machine(4L << 30, 8, 1L << 30), runner);
         assertThat(small.maxParallelPods()).containsExactly(1, 2);
         assertThat(small.defaults()).isEqualTo(new Budget(40, 2));
 
         // Too little memory for even one: still offer 1, Docker's limit then decides.
-        assertThat(HuntOptions.of(new Machine(1L << 30, 1), runner).maxParallelPods()).containsExactly(1);
+        assertThat(HuntOptions.of(new Machine(1L << 30, 1, 1L << 30), runner).maxParallelPods()).containsExactly(1);
     }
 
     @Test

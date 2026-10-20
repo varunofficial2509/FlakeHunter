@@ -89,6 +89,7 @@ export type RunnerSettings = {
   totalMemoryMbOptions: number[];
   dockerMemoryMb: number;
   dockerCpus: number;
+  infraMemoryMb: number;
 };
 
 export type Finding = {

@@ -37,7 +37,7 @@ class RunnerAdminTests {
 
     @BeforeEach
     void dockerHas8GbAnd10Cpus() {
-        when(docker.machine()).thenReturn(new DockerRunner.Machine(8L << 30, 10));
+        when(docker.machine()).thenReturn(new DockerRunner.Machine(8L << 30, 10, 1L << 30));
         when(docker.removeMavenCache()).thenReturn(true);
     }
 

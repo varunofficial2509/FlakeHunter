@@ -15,4 +15,6 @@ public record RunnerProperties(
         Duration runTimeout,
         // Defaults until changed in the Admin panel; see RunnerSettings.
         DataSize memory,
-        DataSize totalMemory) {}
+        DataSize totalMemory,
+        // Kept free in Docker's VM for Kafka and Postgres: their mem_limits in the deploy/presets file.
+        DataSize infraMemory) {}

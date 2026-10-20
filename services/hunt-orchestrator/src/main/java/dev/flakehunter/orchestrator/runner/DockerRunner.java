@@ -29,14 +29,11 @@ public class DockerRunner {
             DataSize memory) {}
 
     /** What Docker's VM offers: runners live inside it, so its memory, not the Mac's, is the limit. */
-    public record Machine(long memoryBytes, int cpus) {
+    public record Machine(long memoryBytes, int cpus, long infraBytes) {
 
-        // Kafka (512 MB heap) and Postgres share Docker's VM with the runners.
-        private static final long INFRA_BYTES = 1024L * 1024 * 1024;
-
-        /** What the runners may use in total. */
+        /** What the runners may use in total: Kafka and Postgres share Docker's VM with them. */
         public long usableBytes() {
-            return memoryBytes - INFRA_BYTES;
+            return memoryBytes - infraBytes;
         }
     }
 
@@ -79,7 +76,7 @@ public class DockerRunner {
                 throw new DockerUnavailableException("docker info failed: " + out, null);
             }
             String[] parts = out.split(" ");
-            return new Machine(Long.parseLong(parts[0]), Integer.parseInt(parts[1]));
+            return new Machine(Long.parseLong(parts[0]), Integer.parseInt(parts[1]), props.infraMemory().toBytes());
         } catch (IOException | NumberFormatException | ArrayIndexOutOfBoundsException e) {
             throw new DockerUnavailableException("Could not read docker info; is Docker running?", e);
         } catch (InterruptedException e) {

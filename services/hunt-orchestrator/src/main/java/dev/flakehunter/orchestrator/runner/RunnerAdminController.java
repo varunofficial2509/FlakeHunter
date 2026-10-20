@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 class RunnerAdminController {
 
     record RunnerView(long memoryMb, long totalMemoryMb, List<Long> memoryMbOptions, List<Long> totalMemoryMbOptions,
-            long dockerMemoryMb, int dockerCpus) {}
+            long dockerMemoryMb, int dockerCpus, long infraMemoryMb) {}
 
     record UpdateRunner(@NotNull Long memoryMb, @NotNull Long totalMemoryMb) {}
 
@@ -87,6 +87,6 @@ class RunnerAdminController {
         List<Long> memory = MEMORY_MB.stream().filter(mb -> mb <= usableMb).toList();
         List<Long> total = LongStream.rangeClosed(1, usableMb / 1024).map(gb -> gb * 1024).boxed().toList();
         return new RunnerView(current.memory().toMegabytes(), current.totalMemory().toMegabytes(), memory, total,
-                machine.memoryBytes() / MB, machine.cpus());
+                machine.memoryBytes() / MB, machine.cpus(), machine.infraBytes() / MB);
     }
 }
