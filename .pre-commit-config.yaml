@@ -6,6 +6,7 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        exclude: ^deploy/charts/.*/templates/ # Helm templates are only YAML after rendering; helm lint checks them
       - id: check-merge-conflict
       - id: check-added-large-files
 
@@ -28,3 +29,4 @@ repos:
     rev: v3.9.10
     hooks:
       - id: prettier
+        exclude: ^deploy/charts/.*/templates/ # it rewrites {{ }} into { { } } and breaks the template

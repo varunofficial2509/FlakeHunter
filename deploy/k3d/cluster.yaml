@@ -1,0 +1,18 @@
+# Local Kubernetes for FlakeHunter: one k3s node inside Docker plus an image registry.
+# Created by deploy/k3d/up.sh, which also passes the k3s image from deploy/images.env.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: flakehunter
+servers: 1
+agents: 0 # one node is enough for one user, and every extra node costs memory
+ports:
+  # The web app and /api through k3s's Traefik ingress, on a port Compose-era services don't use.
+  - port: 127.0.0.1:8090:80
+    nodeFilters: [loadbalancer]
+registries:
+  create:
+    name: k3d-flakehunter-registry
+    image: ${REGISTRY_IMAGE} # from deploy/images.env (k3d expands env vars in this file)
+    host: 127.0.0.1
+    hostPort: "5001" # push from the Mac to localhost:5001; pods pull k3d-flakehunter-registry:5000

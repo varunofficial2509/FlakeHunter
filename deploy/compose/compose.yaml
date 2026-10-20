@@ -1,0 +1,86 @@
+# Local infrastructure for FlakeHunter: Postgres + Kafka (KRaft).
+# Run from the repo root (image tags come from deploy/images.env, sizes from a deploy/presets file):
+#   docker compose --env-file deploy/images.env --env-file deploy/presets/medium.env -f deploy/compose/compose.yaml up -d
+# Without a preset, the medium values below apply.
+name: flakehunter
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?run with --env-file deploy/images.env}
+    environment:
+      POSTGRES_DB: flakehunter
+      # Local-only defaults; override by exporting them in your shell. Never reuse outside your machine.
+      POSTGRES_USER: ${POSTGRES_USER:-flakehunter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flakehunter}
+    command:
+      ["postgres", "-c", "shared_buffers=${POSTGRES_SHARED_BUFFERS:-128MB}"]
+    mem_limit: ${POSTGRES_MEM_LIMIT:-256m}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d flakehunter"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: ${KAFKA_IMAGE:?run with --env-file deploy/images.env}
+    environment:
+      # One node is both broker and controller (KRaft, no ZooKeeper).
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Two client listeners: HOST for apps on your Mac (localhost:9092),
+      # INTERNAL for containers on the compose network (kafka:29092).
+      KAFKA_LISTENERS: HOST://:9092,INTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Single node, so internal topics cannot be replicated.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics are created explicitly by kafka-init, so a typo fails loudly.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # One local broker with little traffic; the default 1 GB heap takes memory the runners need.
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms512m -Xmx512m}
+    # Heap plus off-heap; the orchestrator keeps this much of Docker's VM free (FLAKEHUNTER_INFRA_MEMORY).
+    mem_limit: ${KAFKA_MEM_LIMIT:-768m}
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  # Creates the topics, then exits. Safe to rerun.
+  kafka-init:
+    image: ${KAFKA_IMAGE:?run with --env-file deploy/images.env}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    # The same script creates the topics in Kubernetes (Helm chart), so the list lives in one place.
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      TEST_RESULTS_RETENTION_DAYS: ${TEST_RESULTS_RETENTION_DAYS:-3}
+      EVENTS_RETENTION_DAYS: ${EVENTS_RETENTION_DAYS:-14}
+    volumes:
+      - ../charts/flakehunter/files/create-topics.sh:/create-topics.sh:ro
+    restart: "no"
+
+volumes:
+  postgres-data:
+  kafka-data:

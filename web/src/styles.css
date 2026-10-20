@@ -1,0 +1,45 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 960px;
+  padding: 0 16px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #8884;
+}
+
+form {
+  display: grid;
+  gap: 8px;
+  max-width: 480px;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+}
+
+[role="alert"] {
+  color: #d33;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid #8884;
+}

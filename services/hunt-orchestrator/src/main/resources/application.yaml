@@ -1,6 +1,64 @@
 spring:
   application:
     name: hunt-orchestrator
+  datasource:
+    # Local defaults match deploy/compose; override with SPRING_DATASOURCE_* env vars.
+    url: jdbc:postgresql://localhost:5432/flakehunter
+    username: flakehunter
+    password: flakehunter
+  flyway:
+    # This service owns only the "hunt" schema (tech doc section 7).
+    schemas: hunt
+    default-schema: hunt
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate # Flyway owns the schema; Hibernate only checks it matches.
+    properties:
+      hibernate.default_schema: hunt
+  threads:
+    virtual:
+      enabled: true # hunts wait on containers for minutes; virtual threads make that waiting cheap
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: hunt-orchestrator
+      auto-offset-reset: earliest # a new group must not skip run.completed events sent before it started
+    producer:
+      # Tech doc section 6: a send counts only once every replica has it, and retries never duplicate.
+      acks: all
+      properties:
+        enable.idempotence: true
+  mvc:
+    problemdetails:
+      enabled: true # Errors as RFC 7807 problem details.
+
+flakehunter:
+  project-service-url: http://localhost:8081
+  runner:
+    # docker (Compose) or kubernetes (the Helm chart sets it, with the namespace and registry below).
+    platform: docker
+    namespace: flakehunter-runners
+    # Built by runner/images/build.sh; the JDK number is appended.
+    image-prefix: flakehunter/runner:jdk
+    # Runner containers join the Compose network and reach Kafka by its internal name.
+    network: flakehunter_default
+    kafka-bootstrap-servers: kafka:29092
+    maven-cache-volume: flakehunter-runner-m2
+    prepare-timeout: 15m
+    run-timeout: 30m
+    # Docker's VM has ~7.8 GB and Kafka + Postgres need ~1 GB of it. Without a limit every runner JVM sizes
+    # itself to the whole VM, and the VM's OOM killer may pick Kafka instead of the runner.
+    memory: 1536MB # Maven and the Surefire fork each get ~25% as heap (~384 MB)
+    total-memory: 6GB # so at most 4 runners at once, whatever maxParallelPods says
+    # Kafka + Postgres mem_limits of the deploy/presets file in use (small 768MB, medium 1GB, large 1536MB).
+    infra-memory: ${FLAKEHUNTER_INFRA_MEMORY:1GB}
 
 server:
   port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus # Prometheus scrapes this inside the cluster; the ingress only routes /api

@@ -1,6 +1,38 @@
 spring:
   application:
     name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: projects
+              uri: ${PROJECT_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/projects/**
+            - id: hunts
+              uri: ${HUNT_ORCHESTRATOR_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/hunts/**,/api/admin/**
+            - id: findings
+              uri: ${RESULT_AGGREGATOR_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/findings/**
+
+# Single-user login (tech doc section 5). No defaults for secrets: the gateway refuses to start without them.
+flakehunter:
+  admin:
+    username: ${FLAKEHUNTER_ADMIN_USER:admin}
+    password: ${FLAKEHUNTER_ADMIN_PASSWORD}
+  jwt:
+    secret: ${FLAKEHUNTER_JWT_SECRET}
+    ttl: 8h
 
 server:
   port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus # Prometheus scrapes this inside the cluster; the ingress only routes /api

@@ -1,0 +1,37 @@
+# Creates the topics after every install and upgrade, with the same script Compose uses.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-init
+data:
+  create-topics.sh: |-
+{{ .Files.Get "files/create-topics.sh" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 20 # Kafka may still be starting; each retry waits longer
+  template:
+    spec:
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      containers:
+        - name: kafka-init
+          image: {{ .Values.kafka.image }}
+          command: ["/bin/bash", "/scripts/create-topics.sh"]
+          env:
+            - { name: BOOTSTRAP_SERVERS, value: "kafka:9092" }
+            - { name: TEST_RESULTS_RETENTION_DAYS, value: {{ .Values.kafka.testResultsRetentionDays | quote }} }
+            - { name: EVENTS_RETENTION_DAYS, value: {{ .Values.kafka.eventsRetentionDays | quote }} }
+          resources:
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: scripts, mountPath: /scripts }
+      volumes:
+        - name: scripts
+          configMap: { name: kafka-init }
