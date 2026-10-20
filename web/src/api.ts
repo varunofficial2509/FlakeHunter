@@ -69,8 +69,17 @@ export type Hunt = {
   commitSha: string;
   status: HuntStatus;
   failureReason: string | null;
-  budget: { maxRuns: number; maxParallelPods: number };
+  budget: Budget;
   createdAt: string;
+};
+
+export type Budget = { maxRuns: number; maxParallelPods: number };
+
+/** What this machine can run; the API rejects any other budget. */
+export type HuntOptions = {
+  maxRuns: number[];
+  maxParallelPods: number[];
+  defaults: Budget;
 };
 
 export type Finding = {

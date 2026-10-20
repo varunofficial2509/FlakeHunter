@@ -1,8 +1,11 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import jakarta.validation.Valid;
+import dev.flakehunter.orchestrator.runner.DockerRunner;
+import dev.flakehunter.orchestrator.runner.RunnerProperties;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -27,16 +30,34 @@ class HuntController {
 
     private final HuntService huntService;
     private final HuntRepository hunts;
+    private final DockerRunner docker;
+    private final RunnerProperties runner;
 
-    HuntController(HuntService huntService, HuntRepository hunts) {
+    HuntController(HuntService huntService, HuntRepository hunts, DockerRunner docker, RunnerProperties runner) {
         this.huntService = huntService;
         this.hunts = hunts;
+        this.docker = docker;
+        this.runner = runner;
+    }
+
+    @GetMapping("/options")
+    HuntOptions options() {
+        return HuntOptions.of(docker.machine(), runner);
     }
 
     // Returns as soon as the hunt is saved; preparing and running continue in the background (HuntExecution).
     @PostMapping
     ResponseEntity<?> create(@Valid @RequestBody CreateHuntRequest request) {
-        return huntService.start(request)
+        HuntOptions options = options();
+        Budget budget = request.budget() == null ? options.defaults() : request.budget();
+        if (!options.allows(budget)) {
+            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+                    "This machine allows maxRuns " + options.maxRuns() + " and maxParallelPods "
+                            + options.maxParallelPods());
+            problem.setProperty("errors", Map.of("budget", problem.getDetail()));
+            return ResponseEntity.badRequest().body(problem);
+        }
+        return huntService.start(request, budget)
                 .<ResponseEntity<?>>map(hunt -> ResponseEntity.created(URI.create("/api/hunts/" + hunt.getId()))
                         .body(HuntResponse.from(hunt)))
                 .orElseGet(() -> ResponseEntity.unprocessableContent().body(ProblemDetail.forStatusAndDetail(
@@ -53,6 +74,11 @@ class HuntController {
     HuntResponse get(@PathVariable UUID id) {
         return hunts.findById(id).map(HuntResponse::from)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Hunt " + id + " not found"));
+    }
+
+    @ExceptionHandler(DockerRunner.DockerUnavailableException.class)
+    ProblemDetail dockerDown(DockerRunner.DockerUnavailableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "Docker is not running; start it");
     }
 
     @ExceptionHandler(RestClientException.class)

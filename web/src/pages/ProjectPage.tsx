@@ -1,7 +1,15 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { ApiError, api, post, type Hunt, type Project } from "../api";
+import {
+  ApiError,
+  api,
+  post,
+  type Budget,
+  type Hunt,
+  type HuntOptions,
+  type Project,
+} from "../api";
 
 export function ProjectPage() {
   const { id } = useParams();
@@ -14,23 +22,38 @@ export function ProjectPage() {
     queryKey: ["hunts", id],
     queryFn: () => api<Hunt[]>(`/api/hunts?projectId=${id}`),
   });
+  const options = useQuery({
+    queryKey: ["hunt-options"],
+    queryFn: () => api<HuntOptions>("/api/hunts/options"),
+  });
   const start = useMutation({
-    mutationFn: (commitSha: string) =>
-      post<Hunt>("/api/hunts", { projectId: id, commitSha }),
+    mutationFn: (body: { commitSha: string; budget: Budget }) =>
+      post<Hunt>("/api/hunts", { projectId: id, ...body }),
     onSuccess: (hunt) => navigate(`/hunts/${hunt.id}`),
   });
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    start.mutate(String(new FormData(e.currentTarget).get("commitSha")).trim());
+    const form = new FormData(e.currentTarget);
+    start.mutate({
+      commitSha: String(form.get("commitSha")).trim(),
+      budget: {
+        maxRuns: Number(form.get("maxRuns")),
+        maxParallelPods: Number(form.get("maxParallelPods")),
+      },
+    });
   }
 
   if (project.error) return <p role="alert">{project.error.message}</p>;
-  if (!project.data) return <p>Loading…</p>;
+  if (options.error) return <p role="alert">{options.error.message}</p>;
+  if (!project.data || !options.data) return <p>Loading…</p>;
+  const o = options.data;
   const p = project.data;
   const shaError =
     start.error instanceof ApiError
-      ? (start.error.fields.commitSha ?? start.error.message)
+      ? (start.error.fields.commitSha ??
+        start.error.fields.budget ??
+        start.error.message)
       : null;
 
   return (
@@ -51,6 +74,25 @@ export function ProjectPage() {
             required
             spellCheck={false}
           />
+        </label>
+        <label>
+          Runs
+          <select name="maxRuns" defaultValue={o.defaults.maxRuns}>
+            {o.maxRuns.map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Containers at once (what this machine's Docker memory allows)
+          <select
+            name="maxParallelPods"
+            defaultValue={o.defaults.maxParallelPods}
+          >
+            {o.maxParallelPods.map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>
         </label>
         {shaError && <p role="alert">{shaError}</p>}
         <button type="submit" disabled={start.isPending}>

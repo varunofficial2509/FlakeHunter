@@ -47,11 +47,14 @@ class HuntService {
         this.tx = tx;
     }
 
-    /** Called by the REST API now, and by the hunt.requested listener later. Empty if the project doesn't exist. */
-    Optional<Hunt> start(CreateHuntRequest request) {
+    /**
+     * Called by the REST API now, and by the hunt.requested listener later. Empty if the project doesn't exist.
+     * The budget is already checked against {@link HuntOptions}.
+     */
+    Optional<Hunt> start(CreateHuntRequest request, Budget budget) {
         // The HTTP call happens before the transaction, so no database connection waits on the network.
         return projects.find(request.projectId()).map(project -> tx.execute(status -> {
-            Hunt hunt = hunts.save(request.toHunt(project));
+            Hunt hunt = hunts.save(request.toHunt(project, budget));
             emit(hunt, null, Map.of("projectId", hunt.getProjectId(), "commitSha", hunt.getCommitSha()));
             events.publishEvent(new HuntCreated(hunt.getId()));
             return hunt;

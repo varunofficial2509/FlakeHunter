@@ -23,6 +23,15 @@ public class DockerRunner {
 
     public record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs) {}
 
+    /** What Docker's VM offers: runners live inside it, so its memory, not the Mac's, is the limit. */
+    public record Machine(long memoryBytes, int cpus) {}
+
+    public static class DockerUnavailableException extends RuntimeException {
+        DockerUnavailableException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     public record RunJob(UUID huntId, UUID runId, int jdk, String strategy, Long seed, String timezone,
             String mavenArgs) {}
 
@@ -43,6 +52,24 @@ public class DockerRunner {
 
     public String image(int jdk) {
         return props.imagePrefix() + jdk;
+    }
+
+    public Machine machine() {
+        try {
+            Process process = new ProcessBuilder("docker", "info", "--format", "{{.MemTotal}} {{.NCPU}}")
+                    .redirectErrorStream(true).start();
+            String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (!process.waitFor(30, TimeUnit.SECONDS) || process.exitValue() != 0) {
+                throw new DockerUnavailableException("docker info failed: " + out, null);
+            }
+            String[] parts = out.split(" ");
+            return new Machine(Long.parseLong(parts[0]), Integer.parseInt(parts[1]));
+        } catch (IOException | NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            throw new DockerUnavailableException("Could not read docker info; is Docker running?", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DockerUnavailableException("Interrupted while reading docker info", e);
+        }
     }
 
     /** Clones the commit and compiles the tests into the hunt's volume. Returns the container's exit code. */

@@ -62,6 +62,11 @@ class HuntControllerTests {
     DockerRunner docker;
 
     @BeforeEach
+    void machineFitsFourRunners() {
+        when(docker.machine()).thenReturn(new DockerRunner.Machine(8_392_605_696L, 10));
+    }
+
+    @BeforeEach
     void projectExists() {
         when(projects.find(any())).thenAnswer(call -> Optional.of(new ProjectClient.Project(
                 call.getArgument(0), "https://github.com/alibaba/fastjson", "MAVEN", 8, "-Djdk.version=1.8")));
@@ -111,6 +116,18 @@ class HuntControllerTests {
 
         assertThat(mvc.get().uri("/api/hunts").param("projectId", projectId.toString())).hasStatusOk()
                 .bodyJson().extractingPath("$[*].projectId").asArray().containsExactly(projectId.toString());
+    }
+
+    @Test
+    void offersAndEnforcesTheBudgetsThisMachineCanRun() {
+        assertThat(mvc.get().uri("/api/hunts/options")).hasStatusOk()
+                .bodyJson().extractingPath("$.maxParallelPods").asArray().containsExactly(1, 2, 4);
+
+        MvcTestResult tooMany = post("""
+                {"projectId": "%s", "commitSha": "%s", "budget": {"maxRuns": 40, "maxParallelPods": 8}}"""
+                .formatted(UUID.randomUUID(), SHA));
+        assertThat(tooMany).hasStatus(HttpStatus.BAD_REQUEST);
+        assertThat(tooMany).bodyJson().extractingPath("$.errors.budget").asString().contains("[1, 2, 4]");
     }
 
     @Test
