@@ -191,6 +191,9 @@ Six deployable services plus a short-lived runner image. Each service owns its o
 ### web
 
 - Pages: Projects, Hunt detail (live run grid, pod count, progress), Findings list, Finding detail (evidence charts, agent reasoning timeline, diff, verification), Admin (AI switch, budgets, LLM usage).
+- Settings are picked from preset options, not typed. The server computes the options from the machine (`docker info`: memory, CPUs) and rejects anything outside them.
+  - Runtime settings (UI dropdowns, applied to the next hunt): hunt budget (`maxRuns`, `maxParallelPods`, e.g. 1/2/4 when the cap is 4), memory per runner, total runner memory. Stored in `system_settings`. Admin also has a "Clear Maven cache" button, refused while a hunt is running.
+  - Startup settings (need a container restart): Kafka heap, Postgres memory, Kafka retention. Chosen once from a size preset in `deploy/` (small 8 GB / medium 16 GB / large 32 GB); the UI shows them read-only.
 - Live updates via SSE; data via TanStack Query.
 
 ## 6. Kafka event design
@@ -550,6 +553,7 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 - [ ] Runner base images + publisher sending `test.results` and `run.completed`; remove `runner/junit-extension`
 - [ ] result-aggregator with Kafka Streams, scoring, `finding.detected`
 - [ ] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
+- [ ] Machine-aware preset options: start-hunt budget dropdowns, Admin Runner panel (memory, clear Maven cache), size presets in `deploy/` for Kafka/Postgres
 - [ ] Testcontainers integration tests for the event flow
 
 **Exit:** start a hunt from the UI, runner containers run, a flaky test shows up as a finding.
