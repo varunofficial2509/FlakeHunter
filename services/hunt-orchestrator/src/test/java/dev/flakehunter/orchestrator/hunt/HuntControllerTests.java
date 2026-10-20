@@ -102,6 +102,18 @@ class HuntControllerTests {
     }
 
     @Test
+    void listsTheHuntsOfOneProject() {
+        UUID projectId = UUID.randomUUID();
+        post("""
+                {"projectId": "%s", "commitSha": "%s"}""".formatted(projectId, SHA));
+        post("""
+                {"projectId": "%s", "commitSha": "%s"}""".formatted(UUID.randomUUID(), SHA));
+
+        assertThat(mvc.get().uri("/api/hunts").param("projectId", projectId.toString())).hasStatusOk()
+                .bodyJson().extractingPath("$[*].projectId").asArray().containsExactly(projectId.toString());
+    }
+
+    @Test
     void rejectsInvalidInputAsProblemDetail() {
         MvcTestResult result = post("""
                 {"commitSha": "--upload-pack=x", "budget": {"maxRuns": 2, "maxParallelPods": 1}}""");

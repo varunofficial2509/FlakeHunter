@@ -2,6 +2,7 @@ package dev.flakehunter.orchestrator.hunt;
 
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
@@ -42,6 +44,11 @@ class HuntController {
     }
 
     // A plain read has no rule to enforce, so it goes straight to the repository.
+    @GetMapping
+    List<HuntResponse> list(@RequestParam UUID projectId) {
+        return hunts.findTop20ByProjectIdOrderByCreatedAtDesc(projectId).stream().map(HuntResponse::from).toList();
+    }
+
     @GetMapping("/{id}")
     HuntResponse get(@PathVariable UUID id) {
         return hunts.findById(id).map(HuntResponse::from)
