@@ -65,43 +65,20 @@ services:
       timeout: 10s
       retries: 12
 
-  # Creates the topics from tech doc section 6, then exits. Safe to rerun.
+  # Creates the topics, then exits. Safe to rerun.
   kafka-init:
     image: ${KAFKA_IMAGE:?run with --env-file deploy/images.env}
     depends_on:
       kafka:
         condition: service_healthy
-    entrypoint: ["/bin/bash", "-ec"]
-    command:
-      - |
-        # Also sets retention on existing topics, so a new preset applies when kafka-init reruns.
-        create() {
-          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
-            --topic "$$1" --partitions "$$2" --replication-factor 1
-          /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:29092 --alter --entity-type topics \
-            --entity-name "$$1" --add-config retention.ms="$$3" > /dev/null
-        }
-        DAY_MS=86400000
-        RESULTS=$$(( ${TEST_RESULTS_RETENTION_DAYS:-3} * DAY_MS ))
-        EVENTS=$$(( ${EVENTS_RETENTION_DAYS:-14} * DAY_MS ))
-        create hunt.requested         3 $$EVENTS
-        create hunt.status            3 $$EVENTS
-        create run.scheduled          3 $$EVENTS
-        create test.results           6 $$RESULTS
-        create run.completed          3 $$EVENTS
-        create analysis.completed     3 $$EVENTS
-        create finding.detected       6 $$EVENTS
-        create experiment.requested   3 $$EVENTS
-        create experiment.completed   3 $$EVENTS
-        create diagnosis.completed    3 $$EVENTS
-        create fix.proposed           3 $$EVENTS
-        create verification.requested 3 $$EVENTS
-        create fix.verified           3 $$EVENTS
-        create ai.control             1 $$EVENTS
-        # Dead letters of the topics consumed so far (tech doc section 11).
-        for t in hunt.status test.results run.completed analysis.completed; do
-          create "$$t.dlq" 1 $$EVENTS
-        done
+    # The same script creates the topics in Kubernetes (Helm chart), so the list lives in one place.
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      TEST_RESULTS_RETENTION_DAYS: ${TEST_RESULTS_RETENTION_DAYS:-3}
+      EVENTS_RETENTION_DAYS: ${EVENTS_RETENTION_DAYS:-14}
+    volumes:
+      - ../charts/flakehunter/files/create-topics.sh:/create-topics.sh:ro
     restart: "no"
 
 volumes:

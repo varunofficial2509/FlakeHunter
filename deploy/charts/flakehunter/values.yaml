@@ -1,0 +1,55 @@
+# Images are built and pushed by deploy/k3d/up.sh. Inside the cluster the k3d registry answers on port 5000;
+# from the Mac it is localhost:5001 (deploy/k3d/cluster.yaml).
+image:
+  registry: k3d-flakehunter-registry:5000
+  tag: "" # set by up.sh
+
+# Created once by up.sh with keys postgres-password, admin-password and jwt-secret; never stored in git.
+secretName: flakehunter-secrets
+
+# Memory request = limit: the pod gets exactly this much, so the node is never overcommitted.
+services:
+  project-service:
+    port: 8081
+    memory: 512Mi
+    database: true
+  hunt-orchestrator:
+    port: 8082
+    memory: 512Mi
+    database: true
+    kafka: true
+    env:
+      FLAKEHUNTER_PROJECT_SERVICE_URL: http://project-service:8081
+  result-aggregator:
+    port: 8083
+    memory: 512Mi
+    database: true
+    kafka: true
+  api-gateway:
+    port: 8080
+    memory: 512Mi
+    env:
+      PROJECT_SERVICE_URL: http://project-service:8081
+      HUNT_ORCHESTRATOR_URL: http://hunt-orchestrator:8082
+      RESULT_AGGREGATOR_URL: http://result-aggregator:8083
+    secretEnv:
+      FLAKEHUNTER_ADMIN_PASSWORD: admin-password
+      FLAKEHUNTER_JWT_SECRET: jwt-secret
+
+web:
+  memory: 32Mi
+
+# Same sizes as deploy/presets/medium.env.
+postgres:
+  image: "" # POSTGRES_IMAGE from deploy/images.env, set by up.sh
+  sharedBuffers: 128MB
+  memory: 256Mi
+  storage: 2Gi
+
+kafka:
+  image: "" # KAFKA_IMAGE from deploy/images.env, set by up.sh
+  heap: -Xms512m -Xmx512m
+  memory: 768Mi
+  storage: 2Gi
+  testResultsRetentionDays: 3
+  eventsRetentionDays: 14

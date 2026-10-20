@@ -30,7 +30,7 @@ class SecurityConfig {
                 .formLogin(FormLoginSpec::disable)
                 .authorizeExchange(auth -> auth
                         .pathMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
-                        .pathMatchers("/actuator/health").permitAll()
+                        .pathMatchers("/actuator/health/**").permitAll() // Kubernetes probes
                         .anyExchange().authenticated())
                 .oauth2ResourceServer(rs -> rs.jwt(Customizer.withDefaults()))
                 .build();
