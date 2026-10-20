@@ -479,7 +479,7 @@ One hunt should be traceable end to end in Grafana, any pod should be killable w
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Runner pod crashes or times out     | Run marked `FAILED`/`TIMED_OUT`; excluded from scoring; retried once if budget allows                                      |
 | result-aggregator restarts          | Consumers resume from committed offsets; inserts are idempotent; Analyzer picks up unanalyzed hunts                        |
-| hunt-orchestrator restarts mid-hunt | State in Postgres; reconciler loop compares DB runs with live Jobs and repairs                                             |
+| hunt-orchestrator restarts mid-hunt | State in Postgres; on startup the reconciler resumes unfinished hunts and reattaches to their Jobs by name                 |
 | Kafka unavailable                   | Outbox rows accumulate; relay publishes when Kafka is back                                                                 |
 | agent-service killed (or AI off)    | Sessions checkpointed; unfinished findings re-consumed; hunt waits in `AWAITING_AI`                                        |
 | LLM API errors / rate limits        | Retry with backoff and jitter, circuit breaker (Resilience4j-style in Python via tenacity), fall back to a second provider |
@@ -562,7 +562,7 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 - [ ] k3d cluster with local registry; Helm charts for every service + umbrella
 - [ ] Orchestrator creates runner Jobs with fabric8; RBAC, quotas, NetworkPolicy
-- [ ] Reconciler loop for DB vs live Jobs
+- [x] Reconciler for DB vs live Jobs (on startup: resumes CREATED/PREPARING/RUNNING hunts, reattaches to their Jobs by name)
 - [ ] KEDA for result-aggregator on lag
 - [ ] Prometheus + Grafana with platform dashboard
 

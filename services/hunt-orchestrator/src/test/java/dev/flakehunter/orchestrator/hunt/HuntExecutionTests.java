@@ -3,6 +3,8 @@ package dev.flakehunter.orchestrator.hunt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,6 +49,9 @@ class HuntExecutionTests {
 
     @Autowired
     JsonMapper json;
+
+    @Autowired
+    HuntExecution execution;
 
     @MockitoBean
     ProjectClient projects;
@@ -118,9 +123,43 @@ class HuntExecutionTests {
         assertThat(hunts.findById(huntId).orElseThrow().getFailureReason()).contains("Set jdkVersion");
     }
 
+    @Test
+    void aRestartResumesHuntsWhereTheyStopped() {
+        when(runners.run(any())).thenReturn(1);
+        // What a crashed orchestrator leaves behind: one run in a live container, one never started, one done.
+        Hunt running = hunts.save(huntIn(HuntStatus.RUNNING));
+        Run active = new Run(running.getId(), Strategy.BASELINE, null, null);
+        active.start();
+        Run waiting = new Run(running.getId(), Strategy.SHUFFLE_ORDER, 7L, null);
+        Run done = new Run(running.getId(), Strategy.BASELINE, null, null);
+        done.finish(Run.Status.SUCCEEDED);
+        runs.saveAll(List.of(active, waiting, done));
+        Hunt preparing = hunts.save(huntIn(HuntStatus.PREPARING));
+
+        execution.resumeUnfinished();
+
+        await().atMost(Duration.ofSeconds(10)).until(() -> status(running.getId()) == HuntStatus.ANALYZING
+                && status(preparing.getId()) == HuntStatus.ANALYZING);
+        verify(runners).run(argThat(job -> job.runId().equals(active.getId())));
+        verify(runners).run(argThat(job -> job.runId().equals(waiting.getId())));
+        verify(runners, never()).run(argThat(job -> job.runId().equals(done.getId())));
+        verify(runners).prepare(argThat(job -> job.huntId().equals(preparing.getId())));
+        assertThat(runs.findById(done.getId()).orElseThrow().getStatus()).isEqualTo(Run.Status.SUCCEEDED);
+    }
+
+    private Hunt huntIn(HuntStatus status) {
+        Hunt hunt = new Hunt(UUID.randomUUID(), SHA, new Budget(3, 3), project(UUID.randomUUID(), 8));
+        hunt.moveTo(HuntStatus.PREPARING);
+        if (status == HuntStatus.RUNNING) hunt.moveTo(HuntStatus.RUNNING);
+        return hunt;
+    }
+
+    private static ProjectClient.Project project(UUID id, Integer jdk) {
+        return new ProjectClient.Project(id, "https://github.com/alibaba/fastjson", "MAVEN", jdk, null);
+    }
+
     private void givenProject(Integer jdk) {
-        when(projects.find(any())).thenAnswer(call -> Optional.of(new ProjectClient.Project(
-                call.getArgument(0), "https://github.com/alibaba/fastjson", "MAVEN", jdk, null)));
+        when(projects.find(any())).thenAnswer(call -> Optional.of(project(call.getArgument(0), jdk)));
     }
 
     private UUID start(Budget budget) {

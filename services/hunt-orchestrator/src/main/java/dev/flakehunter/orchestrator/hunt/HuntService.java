@@ -93,6 +93,15 @@ class HuntService {
         return planned;
     }
 
+    /** Hunts an orchestrator drives itself; after a restart, nobody does until HuntExecution resumes them. */
+    List<Hunt> unfinished() {
+        return hunts.findByStatusIn(EnumSet.of(HuntStatus.CREATED, HuntStatus.PREPARING, HuntStatus.RUNNING));
+    }
+
+    List<Run> unfinishedRuns(UUID huntId) {
+        return runs.findByHuntIdAndStatusIn(huntId, UNFINISHED);
+    }
+
     @Transactional
     void markRunning(UUID runId) {
         runs.lockById(runId).filter(r -> r.getStatus() == Run.Status.SCHEDULED).ifPresent(Run::start);

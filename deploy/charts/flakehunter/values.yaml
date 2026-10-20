@@ -15,7 +15,7 @@ services:
     database: true
   hunt-orchestrator:
     port: 8082
-    memory: 512Mi
+    memory: 768Mi # 512Mi was OOMKilled: Kafka, JPA and the Kubernetes client together need ~530 MB
     database: true
     kafka: true
     launchesRunners: true # gets the runner ServiceAccount and settings (templates/runners.yaml)

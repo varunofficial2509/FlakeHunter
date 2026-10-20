@@ -169,7 +169,13 @@ public class KubernetesRunner implements Runner, AutoCloseable {
                 .endSpec()
                 .build();
         var jobs = client.batch().v1().jobs().inNamespace(namespace);
-        jobs.resource(job).create();
+        try {
+            jobs.resource(job).create();
+        } catch (KubernetesClientException e) {
+            if (e.getCode() != 409) throw e;
+            // The name comes from the run's id, so this is our Job, started before an orchestrator restart.
+            log.info("[{}] already exists; waiting for it again", name);
+        }
         // shortcut: a quota-full Job waits for room inside its deadline, so a long queue can time runs out;
         // HuntExecution never starts more than the quota holds, so only two hunts at once can hit it.
         Job done;

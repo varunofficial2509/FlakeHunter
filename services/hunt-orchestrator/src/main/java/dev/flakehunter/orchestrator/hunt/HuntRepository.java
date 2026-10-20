@@ -1,6 +1,7 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import jakarta.persistence.LockModeType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -20,4 +21,6 @@ interface HuntRepository extends JpaRepository<Hunt, UUID> {
 
     // shortcut: newest 20 only, no paging; add Pageable when a project has more hunts than fit on one screen.
     List<Hunt> findTop20ByProjectIdOrderByCreatedAtDesc(UUID projectId);
+
+    List<Hunt> findByStatusIn(Collection<HuntStatus> statuses);
 }

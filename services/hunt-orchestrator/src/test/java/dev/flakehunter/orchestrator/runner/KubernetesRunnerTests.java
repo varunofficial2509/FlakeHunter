@@ -86,6 +86,18 @@ class KubernetesRunnerTests {
     }
 
     @Test
+    void aJobFromBeforeARestartIsWaitedForNotStartedAgain() {
+        UUID runId = UUID.randomUUID();
+        Job existing = client.batch().v1().jobs().inNamespace(NS).resource(new JobBuilder()
+                .withNewMetadata().withName("run-" + runId).endMetadata().build()).create();
+        CompletableFuture<Integer> exit = start(runJob(runId, "BASELINE"));
+
+        await().during(Duration.ofMillis(500)).until(() -> !exit.isDone());
+        finish(existing, "Complete", null);
+        assertThat(exit.join()).isZero();
+    }
+
+    @Test
     void theRunnerQuotaIsTheMachine() {
         client.resourceQuotas().inNamespace(NS).resource(new ResourceQuotaBuilder()
                 .withNewMetadata().withName(KubernetesRunner.QUOTA).endMetadata()

@@ -66,7 +66,7 @@ public class DockerRunner implements Runner {
                 "-e", "MAVEN_ARGS=" + nullToEmpty(job.mavenArgs()),
                 "--entrypoint", "/opt/flakehunter/prepare.sh",
                 image(job.jdk())));
-        return exec(name, cmd, props.prepareTimeout());
+        return start(name, cmd, props.prepareTimeout());
     }
 
     @Override
@@ -89,7 +89,7 @@ public class DockerRunner implements Runner {
         // Starved CPU exposes tests that assume work finishes within a fixed time (tech doc section 9).
         if (job.strategy().equals("CPU_THROTTLE")) cmd.addAll(List.of("--cpus", "0.25"));
         cmd.add(image(job.jdk()));
-        return exec(name, cmd, props.runTimeout().plus(PUBLISH_MARGIN));
+        return start(name, cmd, props.runTimeout().plus(PUBLISH_MARGIN));
     }
 
     @Override
@@ -115,6 +115,20 @@ public class DockerRunner implements Runner {
 
     private static String volume(UUID huntId) {
         return "flakehunter-hunt-" + huntId;
+    }
+
+    /**
+     * Starts the container, or, when one with this name still runs from before an orchestrator restart, attaches
+     * to it instead: docker attach exits with the container's exit code, as docker run does.
+     * shortcut: a container that exits between inspect and attach is reported as failed; rare, costs one run.
+     */
+    private int start(String name, List<String> cmd, Duration timeout) {
+        if (exec(name, List.of("docker", "container", "inspect", "--format", "{{.State.Status}}", name),
+                Duration.ofSeconds(30)) != 0) {
+            return exec(name, cmd, timeout);
+        }
+        log.info("[{}] already exists; attaching to it again", name);
+        return exec(name, List.of("docker", "attach", "--no-stdin", name), timeout);
     }
 
     // Arguments go to docker as a list, never through a shell, so no value can inject a command.

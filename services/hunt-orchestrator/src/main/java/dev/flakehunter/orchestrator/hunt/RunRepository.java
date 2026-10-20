@@ -2,6 +2,7 @@ package dev.flakehunter.orchestrator.hunt;
 
 import jakarta.persistence.LockModeType;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,6 +15,8 @@ interface RunRepository extends JpaRepository<Run, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Run r where r.id = :id")
     Optional<Run> lockById(UUID id);
+
+    List<Run> findByHuntIdAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
 
     long countByHuntIdAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
 }
