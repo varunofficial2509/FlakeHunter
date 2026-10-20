@@ -548,13 +548,13 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 ### Phase 1 — Platform on Docker Compose (27 Oct – 16 Nov)
 
-- [ ] Postgres, Kafka (KRaft), Compose file
-- [ ] project-service and hunt-orchestrator with Flyway, outbox relay, hunt state machine
-- [ ] Runner base images + publisher sending `test.results` and `run.completed`; remove `runner/junit-extension`
+- [x] Postgres, Kafka (KRaft), Compose file
+- [x] project-service and hunt-orchestrator with Flyway, outbox relay, hunt state machine
+- [x] Runner base images + publisher sending `test.results` and `run.completed`; remove `runner/junit-extension`
 - [x] result-aggregator with scoring, `finding.detected`, `analysis.completed` (SQL, not Kafka Streams: ADR 0005)
 - [ ] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
 - [ ] Machine-aware preset options: start-hunt budget dropdowns, Admin Runner panel (memory, clear Maven cache), size presets in `deploy/` for Kafka/Postgres
-- [ ] Testcontainers integration tests for the event flow
+- [x] Testcontainers integration tests for the event flow
 
 **Exit:** start a hunt from the UI, runner containers run, a flaky test shows up as a finding.
 
