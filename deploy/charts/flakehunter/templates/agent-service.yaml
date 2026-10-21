@@ -1,0 +1,46 @@
+{{- /* Python, so not in the Spring services range: no actuator, different env names. */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  labels: { app: agent-service }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: agent-service }
+  template:
+    metadata:
+      labels: { app: agent-service }
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # Graceful stop: the in-flight session's offset stays uncommitted and the next pod resumes it.
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ .Values.postgres.image }}
+          command: ["sh", "-c", "until pg_isready -h postgres -U flakehunter; do sleep 2; done"]
+          resources:
+            limits: { memory: 32Mi }
+      containers:
+        - name: agent-service
+          image: "{{ .Values.image.registry }}/flakehunter/agent-service:{{ required "image.tag" .Values.image.tag }}"
+          ports:
+            - containerPort: 8084
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: postgres-password } }
+            - name: FLAKEHUNTER_DATABASE_URL # the password is hex, so it is safe inside a URL
+              value: postgresql://flakehunter:$(POSTGRES_PASSWORD)@postgres:5432/flakehunter
+            - { name: FLAKEHUNTER_KAFKA_BOOTSTRAP_SERVERS, value: kafka:9092 }
+            - name: GEMINI_API_KEY # without it the service runs with a fake LLM
+              valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: gemini-api-key, optional: true } }
+          resources:
+            requests: { memory: {{ .Values.agentService.memory }}, cpu: 50m }
+            limits: { memory: {{ .Values.agentService.memory }} }
+          startupProbe:
+            httpGet: { path: /health, port: 8084 }
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet: { path: /health, port: 8084 }
