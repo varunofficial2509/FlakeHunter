@@ -95,10 +95,17 @@ public class KubernetesRunner implements Runner, AutoCloseable {
     public int prepare(PrepareJob job) {
         ensureClaim(props.mavenCacheVolume());
         ensureClaim(workspace(job.huntId()));
-        Container container = container(image(job.jdk()), job.memory(), null, List.of(
+        List<EnvVar> env = new ArrayList<>(List.of(
                 new EnvVar("REPO_URL", job.repoUrl(), null),
                 new EnvVar("COMMIT_SHA", job.commitSha(), null),
-                new EnvVar("MAVEN_ARGS", nullToEmpty(job.mavenArgs()), null)),
+                new EnvVar("MAVEN_ARGS", nullToEmpty(job.mavenArgs()), null)));
+        if (job.exportTests() != null) {
+            env.addAll(List.of(new EnvVar("EXPORT_TESTS", job.exportTests(), null),
+                    new EnvVar("HUNT_ID", job.huntId().toString(), null),
+                    new EnvVar("KAFKA_BOOTSTRAP_SERVERS", props.kafkaBootstrapServers(), null)));
+        }
+        if (job.patch() != null) env.add(new EnvVar("PATCH", job.patch(), null));
+        Container container = container(image(job.jdk()), job.memory(), null, env,
                 List.of(mount("workspace", "/workspace", false), mount("m2", "/home/runner/.m2", false)));
         container.setCommand(List.of("/opt/flakehunter/prepare.sh"));
         return execute("prepare-" + job.huntId(), container, job.huntId(), props.prepareTimeout());

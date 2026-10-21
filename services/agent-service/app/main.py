@@ -13,7 +13,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from app.budget import Budget
 from app.config import Settings
-from app.consumer import EXPERIMENT_COMPLETED, FINDING_DETECTED, consume, publisher
+from app.consumer import EXPERIMENT_COMPLETED, FINDING_DETECTED, FIX_VERIFIED, consume, publisher
 from app.graph import build_graph
 from app.llm import make_llm
 
@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
         consumer = AIOKafkaConsumer(
             FINDING_DETECTED,
             EXPERIMENT_COMPLETED,
+            FIX_VERIFIED,
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id="agents",
             enable_auto_commit=False,

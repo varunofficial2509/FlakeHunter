@@ -11,7 +11,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from app.budget import Budget
 from app.config import Settings
-from app.consumer import EXPERIMENT_COMPLETED, FINDING_DETECTED, handle, thread
+from app.consumer import EXPERIMENT_COMPLETED, FINDING_DETECTED, FIX_VERIFIED, handle, thread
 from app.graph import build_graph
 from app.llm import FAKE_PLAN
 from app.main import migrate, open_pool
@@ -21,6 +21,8 @@ POSTGRES_IMAGE = next(
     line.split("=", 1)[1] for line in IMAGES.read_text().splitlines() if line.startswith("POSTGRES_IMAGE=")
 )
 TEST = "com.acme.DateTest#indian"
+SOURCE = "src/test/java/com/acme/DateTest.java"
+CODE = "class DateTest {\n    TimeZone zone = TimeZone.getDefault();\n}\n"
 
 
 @pytest.fixture(scope="module")
@@ -70,16 +72,36 @@ def conclusion(confirmed: bool, evidence: list[str]) -> str:
     )
 
 
-def completed(env, experiment_id, failures) -> dict:
+def completed(env, experiment_id, failures, topic=EXPERIMENT_COMPLETED, runs=10) -> dict:
     payload = {
         "findingId": env["payload"]["findingId"],
         "experimentId": experiment_id,
         "status": "COMPLETED",
         "reason": None,
-        "runs": 10,
+        "runs": runs,
         "tests": [{"test": TEST, "failures": failures}],
+        "sources": {SOURCE: CODE} if topic == EXPERIMENT_COMPLETED else None,
     }
-    return {"eventType": EXPERIMENT_COMPLETED, "huntId": env["huntId"], "payload": payload}
+    return {"eventType": topic, "huntId": env["huntId"], "payload": payload}
+
+
+def classification(evidence: list[str]) -> str:
+    return json.dumps({"category": "TIME_DEPENDENT", "confidence": 0.9, "evidence": evidence})
+
+
+def fix(replace: str, search: str = "TimeZone.getDefault()") -> str:
+    edit = {"path": SOURCE, "search": search, "replace": replace}
+    return json.dumps({"edits": [edit], "rationale": "pin the zone the test expects"})
+
+
+def review(approved: bool) -> str:
+    return json.dumps({"approved": approved, "feedback": "removes the dependency on the default zone"})
+
+
+async def waiting_for(graph, env, node) -> dict:
+    state = await graph.aget_state(thread(env["payload"]["findingId"]))
+    assert state.next == (node,)
+    return state.values["pending"]
 
 
 def make_graph(pool, large_answers, small_answers=(FAKE_PLAN,), published=None, **caps):
@@ -98,11 +120,16 @@ async def calls(pool, env) -> int:
         return (await cur.fetchone())["n"]
 
 
-async def test_requests_an_experiment_waits_for_it_and_concludes(pool):
+async def test_requests_an_experiment_then_fixes_and_verifies(pool):
     env = envelope()
     experiment_id = first_experiment_id(env)
     published = Published()
-    graph = make_graph(pool, [experiment(), conclusion(True, [experiment_id])], published=published)
+    graph = make_graph(
+        pool,
+        [experiment(), conclusion(True, [experiment_id]), fix('TimeZone.getTimeZone("Asia/Kolkata")'), review(True)],
+        small_answers=[FAKE_PLAN, classification([experiment_id])],
+        published=published,
+    )
 
     await handle(graph, FINDING_DETECTED, env)
     state = await graph.aget_state(thread(env["payload"]["findingId"]))
@@ -119,12 +146,60 @@ async def test_requests_an_experiment_waits_for_it_and_concludes(pool):
     await handle(graph, EXPERIMENT_COMPLETED, completed(env, experiment_id, 7))
     await handle(graph, EXPERIMENT_COMPLETED, completed(env, experiment_id, 7))  # duplicate answer
 
+    verification = await waiting_for(graph, env, "verify")
+    topic, _, _, request = published[-1]
+    assert topic == "verification.requested" and request["experimentId"] == verification["experimentId"]
+    # The condition that made it fail, 100 times, with the fix applied.
+    assert request["plan"] == {"tests": [TEST], "strategy": "TIMEZONE", "timezone": "Asia/Kolkata", "repeat": 100}
+    assert '+    TimeZone zone = TimeZone.getTimeZone("Asia/Kolkata");' in request["patch"]
+
+    await handle(graph, FIX_VERIFIED, completed(env, verification["experimentId"], 0, FIX_VERIFIED, runs=100))
+
     state = await graph.aget_state(thread(env["payload"]["findingId"]))
-    assert state.values["status"] == "INVESTIGATED"
-    assert state.values["conclusion"]["evidence"] == [experiment_id]
+    assert state.values["status"] == "FIX_VERIFIED"
+    assert state.values["classification"]["category"] == "TIME_DEPENDENT"
+    assert state.values["sources"] == {SOURCE: CODE}
+    assert "sources" not in state.values["experiments"][0]["result"]  # kept once, not per experiment
     assert state.values["experiments"][0]["result"]["tests"][0]["failures"] == 7
-    assert [s["agent"] for s in state.values["steps"]] == ["triage", "investigator", "investigator", "investigator"]
-    assert await calls(pool, env) == 3  # triage + two investigator decisions; resuming re-ran no LLM call
+    assert [s["agent"] for s in state.values["steps"]] == [
+        *["triage", "investigator", "investigator", "investigator"],
+        *["classifier", "fix writer", "critic", "verifier"],
+    ]
+    assert await calls(pool, env) == 6  # resuming re-ran no LLM call
+
+
+async def test_a_hidden_failure_is_refused_and_a_failed_verification_gets_one_more_round(pool):
+    env = envelope()
+    experiment_id = first_experiment_id(env)
+    graph = make_graph(
+        pool,
+        [
+            experiment(),
+            conclusion(True, [experiment_id]),
+            fix("TimeZone.getDefault(); // @Disabled", search="TimeZone.getDefault();"),  # refused, no critic call
+            fix('TimeZone.getTimeZone("UTC")'),
+            review(True),
+            fix('TimeZone.getTimeZone("IST")'),
+            review(True),
+        ],
+        small_answers=[FAKE_PLAN, classification([experiment_id])],
+    )
+    await handle(graph, FINDING_DETECTED, env)
+    await handle(graph, EXPERIMENT_COMPLETED, completed(env, experiment_id, 7))
+
+    for failures in (3, 1):
+        verification = await waiting_for(graph, env, "verify")
+        await handle(graph, FIX_VERIFIED, completed(env, verification["experimentId"], failures, FIX_VERIFIED, 100))
+
+    state = await graph.aget_state(thread(env["payload"]["findingId"]))
+    assert state.values["status"] == "FIX_FAILED"
+    attempts = state.values["attempts"]
+    assert attempts[0]["rejected"].startswith("The fix disables the test")
+    assert [a.get("verification") for a in attempts[1:]] == [
+        "The test still failed 3 times in 100 runs",
+        "The test still failed 1 times in 100 runs",
+    ]
+    assert await calls(pool, env) == 9  # triage, 2 investigator, classifier, 3 fixes; 2 critics (not the refusal)
 
 
 async def test_stops_when_budget_is_used_up(pool):

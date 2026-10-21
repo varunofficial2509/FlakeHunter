@@ -10,12 +10,14 @@ import static org.mockito.Mockito.verify;
 import dev.flakehunter.events.EventEnvelope;
 import dev.flakehunter.events.ExperimentRequested;
 import dev.flakehunter.events.RunCompleted;
+import dev.flakehunter.events.SourcesExported;
 import dev.flakehunter.events.Topics;
 import dev.flakehunter.orchestrator.TestcontainersConfiguration;
 import dev.flakehunter.orchestrator.project.ProjectClient;
 import dev.flakehunter.orchestrator.runner.Runner;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +29,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** experiment.requested → runs in the experiment's own workspace → experiment.completed, with real Kafka. */
+/**
+ * experiment.requested → runs in the experiment's own workspace → experiment.completed, and the same for
+ * verification.requested → fix.verified, with real Kafka.
+ */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 class ExperimentTests {
@@ -67,7 +72,15 @@ class ExperimentTests {
 
         await().atMost(Duration.ofSeconds(15)).until(() -> runsOf(experimentId).size() == 3
                 && runsOf(experimentId).stream().allMatch(r -> r.getStatus() == Run.Status.RUNNING));
-        verify(runners).prepare(argThat(job -> job.huntId().equals(experimentId))); // its own workspace
+        verify(runners).prepare(argThat(job -> job.huntId().equals(experimentId) // its own workspace
+                && TEST.equals(job.exportTests()) && job.patch() == null));
+        // What the prepare step would publish.
+        Map<String, String> files = Map.of("src/test/java/DateTest4_indian.java", "class DateTest4_indian {}");
+        kafka.send(Topics.SOURCES_EXPORTED, experimentId.toString(), json.writeValueAsString(EventEnvelope.of(
+                Topics.SOURCES_EXPORTED, experimentId, new SourcesExported(experimentId, files)))).get();
+        await().atMost(Duration.ofSeconds(15)).until(() -> jdbc.sql(
+                "SELECT count(*) FROM hunt.experiments WHERE id = ? AND sources IS NOT NULL")
+                .param(experimentId).query(Integer.class).single() == 1);
         verify(runners, timeout(5000).times(3)).run(argThat(job -> job.huntId().equals(experimentId)
                 && TEST.equals(job.testFilter()) && "Asia/Kolkata".equals(job.timezone())));
 
@@ -77,10 +90,13 @@ class ExperimentTests {
         report(experimentId, planned.get(1), List.of(TEST, "com.other.Test#x"));
         report(experimentId, planned.get(2), List.of());
 
-        JsonNode answer = await().atMost(Duration.ofSeconds(15)).until(() -> answer(experimentId), a -> a != null);
+        JsonNode answer = await().atMost(Duration.ofSeconds(15))
+                .until(() -> answer(Topics.EXPERIMENT_COMPLETED, experimentId), a -> a != null);
         assertThat(answer.get("status").asString()).isEqualTo("COMPLETED");
         assertThat(answer.get("runs").asInt()).isEqualTo(3);
         assertThat(answer.get("tests").get(0).get("failures").asInt()).isEqualTo(2);
+        assertThat(answer.get("sources").get("src/test/java/DateTest4_indian.java").asString())
+                .isEqualTo("class DateTest4_indian {}");
         assertThat(hunts.findById(hunt.getId()).orElseThrow().getStatus()).isEqualTo(HuntStatus.COMPLETED);
         verify(runners, timeout(5000)).removeVolume(experimentId);
     }
@@ -94,11 +110,36 @@ class ExperimentTests {
         kafka.send(Topics.EXPERIMENT_REQUESTED, findingId.toString(), request(hunt, findingId, experimentId,
                 new ExperimentRequested.Plan(List.of("a.B#c,**/*"), "BASELINE", null, 5))).get();
 
-        JsonNode answer = await().atMost(Duration.ofSeconds(15)).until(() -> answer(experimentId), a -> a != null);
+        JsonNode answer = await().atMost(Duration.ofSeconds(15))
+                .until(() -> answer(Topics.EXPERIMENT_COMPLETED, experimentId), a -> a != null);
         assertThat(answer.get("status").asString()).isEqualTo("REJECTED");
         assertThat(answer.get("reason").asString()).contains("Not a test id");
         assertThat(runsOf(experimentId)).isEmpty();
         verify(runners, timeout(1000).times(0)).prepare(argThat(job -> job.huntId().equals(experimentId)));
+    }
+
+    @Test
+    void verifiesAPatchAndAnswersOnFixVerified() throws Exception {
+        Hunt hunt = completedHunt();
+        UUID findingId = UUID.randomUUID();
+        UUID verificationId = UUID.randomUUID();
+        String patch = "--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-x\n+y\n";
+        String request = json.writeValueAsString(EventEnvelope.of(Topics.VERIFICATION_REQUESTED, hunt.getId(),
+                new ExperimentRequested(findingId, verificationId, "fixed: pass the zone",
+                        new ExperimentRequested.Plan(List.of(TEST), "TIMEZONE", "Asia/Kolkata", 2), patch)));
+        kafka.send(Topics.VERIFICATION_REQUESTED, findingId.toString(), request).get();
+
+        await().atMost(Duration.ofSeconds(15)).until(() -> runsOf(verificationId).size() == 2
+                && runsOf(verificationId).stream().allMatch(r -> r.getStatus() == Run.Status.RUNNING));
+        verify(runners).prepare(argThat(job -> job.huntId().equals(verificationId) && patch.equals(job.patch())
+                && job.exportTests() == null));
+        for (Run run : runsOf(verificationId)) report(verificationId, run, List.of());
+
+        JsonNode answer = await().atMost(Duration.ofSeconds(15))
+                .until(() -> answer(Topics.FIX_VERIFIED, verificationId), a -> a != null);
+        assertThat(answer.get("status").asString()).isEqualTo("COMPLETED");
+        assertThat(answer.get("runs").asInt()).isEqualTo(2);
+        assertThat(answer.get("tests").get(0).get("failures").asInt()).isZero();
     }
 
     private Hunt completedHunt() {
@@ -113,7 +154,7 @@ class ExperimentTests {
 
     private String request(Hunt hunt, UUID findingId, UUID experimentId, ExperimentRequested.Plan plan) {
         return json.writeValueAsString(EventEnvelope.of(Topics.EXPERIMENT_REQUESTED, hunt.getId(),
-                new ExperimentRequested(findingId, experimentId, "fails in IST", plan)));
+                new ExperimentRequested(findingId, experimentId, "fails in IST", plan, null)));
     }
 
     private void report(UUID experimentId, Run run, List<String> failed) throws Exception {
@@ -127,8 +168,8 @@ class ExperimentTests {
         return runs.findByExperimentId(experimentId);
     }
 
-    private JsonNode answer(UUID experimentId) {
-        return jdbc.sql("SELECT payload FROM hunt.outbox WHERE topic = ?").param(Topics.EXPERIMENT_COMPLETED)
+    private JsonNode answer(String topic, UUID experimentId) {
+        return jdbc.sql("SELECT payload FROM hunt.outbox WHERE topic = ?").param(topic)
                 .query(String.class).list().stream().map(p -> json.readTree(p).get("payload"))
                 .filter(p -> p.get("experimentId").asString().equals(experimentId.toString()))
                 .findFirst().orElse(null);

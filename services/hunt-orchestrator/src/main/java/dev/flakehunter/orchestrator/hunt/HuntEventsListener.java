@@ -4,6 +4,7 @@ import dev.flakehunter.events.AnalysisCompleted;
 import dev.flakehunter.events.EventEnvelope;
 import dev.flakehunter.events.ExperimentRequested;
 import dev.flakehunter.events.RunCompleted;
+import dev.flakehunter.events.SourcesExported;
 import dev.flakehunter.events.Topics;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -21,6 +22,7 @@ class HuntEventsListener {
     private static final TypeReference<EventEnvelope<AnalysisCompleted>> ANALYSIS = new TypeReference<>() {};
 
     private static final TypeReference<EventEnvelope<ExperimentRequested>> EXPERIMENT = new TypeReference<>() {};
+    private static final TypeReference<EventEnvelope<SourcesExported>> SOURCES = new TypeReference<>() {};
 
     private final HuntService hunts;
     private final Experiments experiments;
@@ -56,7 +58,20 @@ class HuntEventsListener {
     @KafkaListener(topics = Topics.EXPERIMENT_REQUESTED)
     void onExperimentRequested(String message) {
         EventEnvelope<ExperimentRequested> event = json.readValue(message, EXPERIMENT);
-        experiments.accept(event.huntId(), event.payload());
+        experiments.accept(event.huntId(), event.payload(), false);
+    }
+
+    @KafkaListener(topics = Topics.VERIFICATION_REQUESTED)
+    void onVerificationRequested(String message) {
+        EventEnvelope<ExperimentRequested> event = json.readValue(message, EXPERIMENT);
+        experiments.accept(event.huntId(), event.payload(), true);
+    }
+
+    // Idempotent on its own: the first export of an experiment is kept.
+    @KafkaListener(topics = Topics.SOURCES_EXPORTED)
+    void onSourcesExported(String message) {
+        SourcesExported sources = json.readValue(message, SOURCES).payload();
+        experiments.exported(sources.experimentId(), sources.files());
     }
 
     private boolean firstTime(UUID eventId) {

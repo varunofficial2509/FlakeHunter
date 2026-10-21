@@ -104,8 +104,8 @@ class HuntExecution {
         int jdk = hunt.getJdkVersion();
         // Read once: an Admin change applies to the next hunt, never halfway through this one.
         RunnerSettings.Limits limits = settings.current();
-        int exit = runners.prepare(new Runner.PrepareJob(
-                huntId, jdk, hunt.getRepoUrl(), hunt.getCommitSha(), hunt.getMavenArgs(), limits.memory()));
+        int exit = runners.prepare(new Runner.PrepareJob(huntId, jdk, hunt.getRepoUrl(), hunt.getCommitSha(),
+                hunt.getMavenArgs(), limits.memory(), null, null));
         if (stopping) return;
         if (exit != 0) {
             hunts.fail(huntId, switch (exit) {
@@ -123,6 +123,7 @@ class HuntExecution {
      * Prepares the hunt's commit again in the experiment's own workspace (the hunt's is gone once its runs end,
      * and two experiments may run at once), then runs its runs. The workspace id is also the HUNT_ID the runner
      * reports under, so experiment results never mix into the hunt's analysis in result-aggregator.
+     * An experiment's prepare step also exports its tests' sources; a verification's applies the patch instead.
      */
     private void driveExperiment(Experiment experiment) {
         UUID id = experiment.getId();
@@ -130,11 +131,15 @@ class HuntExecution {
             Hunt hunt = hunts.find(experiment.getHuntId());
             RunnerSettings.Limits limits = settings.current();
             if (experiment.getStatus() == Experiment.Status.PREPARING) {
+                boolean verification = experiment.isVerification();
                 int exit = runners.prepare(new Runner.PrepareJob(id, hunt.getJdkVersion(), hunt.getRepoUrl(),
-                        hunt.getCommitSha(), hunt.getMavenArgs(), limits.memory()));
+                        hunt.getCommitSha(), hunt.getMavenArgs(), limits.memory(),
+                        verification ? null : String.join(",", experiment.getPlan().tests()), experiment.getPatch()));
                 if (stopping) return;
                 if (exit != 0) {
-                    experiments.fail(id, "Preparing the commit failed (exit " + exit + ")");
+                    experiments.fail(id, !verification ? "Preparing the commit failed (exit " + exit + ")"
+                            : exit == Runner.PATCH_REJECTED ? "The patch does not apply to the commit"
+                            : "The patched commit does not compile (exit " + exit + ")");
                     return;
                 }
                 experiments.markRunning(id);
