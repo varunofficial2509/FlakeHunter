@@ -13,7 +13,12 @@ import org.springframework.web.ErrorResponseException;
  */
 public interface Runner {
 
-    record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs, DataSize memory) {}
+    /**
+     * exportTests (comma-separated test ids) makes the prepare step publish their sources.exported; patch is a
+     * unified diff applied before compiling. Both null for a hunt.
+     */
+    record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs, DataSize memory,
+            String exportTests, String patch) {}
 
     /** huntId names the prepared workspace: the hunt's own, or an experiment's. testFilter is Surefire -Dtest. */
     record RunJob(UUID huntId, UUID runId, int jdk, String strategy, Long seed, String timezone, String testFilter,
@@ -38,6 +43,8 @@ public interface Runner {
 
     /** Exit code we report when we had to kill a container; the same one {@code timeout} uses. */
     int TIMED_OUT = 124;
+    /** prepare.sh's exit code when the patch does not apply. */
+    int PATCH_REJECTED = 3;
     /** 128 + SIGKILL: what a container exits with when it hits its memory limit. */
     int KILLED = 137;
     /** The run script stops the tests at run-timeout; this margin lets it still publish before we kill it. */

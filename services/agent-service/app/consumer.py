@@ -13,6 +13,8 @@ log = logging.getLogger(__name__)
 
 FINDING_DETECTED = "finding.detected"
 EXPERIMENT_COMPLETED = "experiment.completed"
+FIX_VERIFIED = "fix.verified"
+RESUMES = {EXPERIMENT_COMPLETED: "experiment", FIX_VERIFIED: "verify"}  # answer topic → the node waiting for it
 DLQ_SUFFIX = ".dlq"  # same as Topics.DLQ_SUFFIX in libs/events
 
 
@@ -46,9 +48,9 @@ async def handle(graph: CompiledStateGraph, topic: str, envelope: dict) -> None:
     payload = envelope["payload"]
     config = thread(payload["findingId"])
     state = await graph.aget_state(config)
-    if topic == EXPERIMENT_COMPLETED:
+    if topic in RESUMES:
         pending = state.values.get("pending")
-        if "experiment" not in state.next or not pending or pending["experimentId"] != payload["experimentId"]:
+        if RESUMES[topic] not in state.next or not pending or pending["experimentId"] != payload["experimentId"]:
             return  # a duplicate, or an answer the session no longer waits for
         await graph.ainvoke(Command(resume=payload), config)
         return

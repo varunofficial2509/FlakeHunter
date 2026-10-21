@@ -26,8 +26,8 @@ FAKE_PLAN = json.dumps(
 
 
 class FakeInvestigator(BaseChatModel):
-    """No key: asks for one small experiment on the finding's test, then concludes from its result. Lets the
-    whole experiment round trip run in the cluster without an API key."""
+    """No key: asks for one small experiment on the finding's test, then concludes that nothing is proven, since
+    it can't diagnose (so no classifier or fix runs). Lets the experiment round trip run without an API key."""
 
     @property
     def _llm_type(self) -> str:
@@ -49,14 +49,12 @@ class FakeInvestigator(BaseChatModel):
                 },
             }
         else:
-            result = done[-1]["result"]
-            failed = result["status"] == "COMPLETED" and any(t["failures"] for t in result["tests"])
             answer = {
                 "action": "conclude",
                 "hypothesis": done[-1]["hypothesis"],
                 "category": "UNKNOWN",
-                "confirmed": failed,
-                "evidence": [done[-1]["experimentId"]] if failed else [],
+                "confirmed": False,
+                "evidence": [done[-1]["experimentId"]],
                 "explanation": "Fake LLM: set GEMINI_API_KEY for a real diagnosis",
             }
         return ChatResult(generations=[ChatGeneration(message=AIMessage(json.dumps(answer)))])
