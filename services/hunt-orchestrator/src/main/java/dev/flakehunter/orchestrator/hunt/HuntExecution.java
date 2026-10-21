@@ -27,13 +27,15 @@ class HuntExecution {
     private static final Logger log = LoggerFactory.getLogger(HuntExecution.class);
 
     private final HuntService hunts;
+    private final Experiments experiments;
     private final Runner runners;
     private final RunnerSettings settings;
     // Set on shutdown: waits then end with interrupts or closed clients, which say nothing about the runs.
     private volatile boolean stopping;
 
-    HuntExecution(HuntService hunts, Runner runners, RunnerSettings settings) {
+    HuntExecution(HuntService hunts, Experiments experiments, Runner runners, RunnerSettings settings) {
         this.hunts = hunts;
+        this.experiments = experiments;
         this.runners = runners;
         this.settings = settings;
     }
@@ -45,12 +47,22 @@ class HuntExecution {
         drive(event.huntId(), HuntStatus.CREATED, null);
     }
 
+    @Async
+    @TransactionalEventListener
+    void onExperimentAccepted(Experiments.Accepted event) {
+        driveExperiment(event.experiment());
+    }
+
     /** The reconciler: the database says which hunts should be moving; nothing moves them after a restart. */
     @EventListener(ApplicationReadyEvent.class)
     void resumeUnfinished() {
         for (Hunt hunt : hunts.unfinished()) {
             log.info("Resuming hunt {} from {}", hunt.getId(), hunt.getStatus());
             Thread.ofVirtual().start(() -> drive(hunt.getId(), hunt.getStatus(), hunt));
+        }
+        for (Experiment experiment : experiments.unfinished()) {
+            log.info("Resuming experiment {} from {}", experiment.getId(), experiment.getStatus());
+            Thread.ofVirtual().start(() -> driveExperiment(experiment));
         }
     }
 
@@ -66,7 +78,7 @@ class HuntExecution {
                 case CREATED -> prepareAndRun(hunts.moveTo(huntId, HuntStatus.PREPARING));
                 case PREPARING -> prepareAndRun(hunt);
                 // shortcut: resumed runs use today's Admin limits, not the ones the hunt started with.
-                case RUNNING -> launchAll(hunt, hunts.unfinishedRuns(huntId), settings.current());
+                case RUNNING -> launchAll(hunt, huntId, hunts.unfinishedRuns(huntId), settings.current());
                 default -> throw new IllegalArgumentException("Nothing to drive in " + from);
             }
         } catch (Exception e) {
@@ -104,7 +116,37 @@ class HuntExecution {
             });
             return;
         }
-        launchAll(hunt, hunts.startRuns(huntId, runners.image(jdk)), limits);
+        launchAll(hunt, huntId, hunts.startRuns(huntId, runners.image(jdk)), limits);
+    }
+
+    /**
+     * Prepares the hunt's commit again in the experiment's own workspace (the hunt's is gone once its runs end,
+     * and two experiments may run at once), then runs its runs. The workspace id is also the HUNT_ID the runner
+     * reports under, so experiment results never mix into the hunt's analysis in result-aggregator.
+     */
+    private void driveExperiment(Experiment experiment) {
+        UUID id = experiment.getId();
+        try {
+            Hunt hunt = hunts.find(experiment.getHuntId());
+            RunnerSettings.Limits limits = settings.current();
+            if (experiment.getStatus() == Experiment.Status.PREPARING) {
+                int exit = runners.prepare(new Runner.PrepareJob(id, hunt.getJdkVersion(), hunt.getRepoUrl(),
+                        hunt.getCommitSha(), hunt.getMavenArgs(), limits.memory()));
+                if (stopping) return;
+                if (exit != 0) {
+                    experiments.fail(id, "Preparing the commit failed (exit " + exit + ")");
+                    return;
+                }
+                experiments.markRunning(id);
+            }
+            launchAll(hunt, id, experiments.unfinishedRuns(id), limits);
+        } catch (Exception e) {
+            if (stopping) return;
+            log.error("Experiment {} failed", id, e);
+            experiments.fail(id, "Internal error: " + e.getMessage());
+        } finally {
+            if (!stopping) runners.removeVolume(id);
+        }
     }
 
     /**
@@ -112,7 +154,8 @@ class HuntExecution {
      * memory), and returns when all containers exited.
      * shortcut: the memory cap is per hunt; two hunts at once can use twice the total. Fine for one user.
      */
-    private void launchAll(Hunt hunt, List<Run> runs, RunnerSettings.Limits limits) throws InterruptedException {
+    private void launchAll(Hunt hunt, UUID workspaceId, List<Run> runs, RunnerSettings.Limits limits)
+            throws InterruptedException {
         int parallel = Math.min(hunt.getBudget().maxParallelPods(), limits.maxContainers());
         if (parallel < hunt.getBudget().maxParallelPods()) {
             log.info("Hunt {}: running {} containers at once, not {}: that is all the runner memory allows",
@@ -125,9 +168,9 @@ class HuntExecution {
             hunts.markRunning(run.getId());
             containers.add(Thread.ofVirtual().start(() -> {
                 try {
-                    int exit = runners.run(new Runner.RunJob(hunt.getId(), run.getId(), hunt.getJdkVersion(),
-                            run.getStrategy().name(), run.getSeed(), run.getTimezone(), hunt.getMavenArgs(),
-                            limits.memory()));
+                    int exit = runners.run(new Runner.RunJob(workspaceId, run.getId(), hunt.getJdkVersion(),
+                            run.getStrategy().name(), run.getSeed(), run.getTimezone(), run.getTestFilter(),
+                            hunt.getMavenArgs(), limits.memory()));
                     if (stopping) return;
                     // Exit 0 means the publisher delivered run.completed, and the listener records it.
                     // Anything else means no report is coming, so don't let the hunt wait for it.
@@ -138,12 +181,12 @@ class HuntExecution {
                     if (exit != 0) {
                         log.warn("Run {} exited {} without reporting", run.getId(), exit);
                         hunts.finishRun(run.getId(),
-                                exit == Runner.TIMED_OUT ? Run.Status.TIMED_OUT : Run.Status.FAILED);
+                                exit == Runner.TIMED_OUT ? Run.Status.TIMED_OUT : Run.Status.FAILED, null);
                     }
                 } catch (Exception e) {
                     if (stopping) return;
                     log.error("Run {} could not be started", run.getId(), e);
-                    hunts.finishRun(run.getId(), Run.Status.FAILED);
+                    hunts.finishRun(run.getId(), Run.Status.FAILED, null);
                 } finally {
                     slots.release();
                 }

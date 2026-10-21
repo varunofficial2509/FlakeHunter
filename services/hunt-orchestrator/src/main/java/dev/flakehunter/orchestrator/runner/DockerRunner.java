@@ -86,6 +86,7 @@ public class DockerRunner implements Runner {
                 "-e", "RUN_TIMEOUT_SECONDS=" + props.runTimeout().toSeconds()));
         if (job.seed() != null) cmd.addAll(List.of("-e", "SEED=" + job.seed()));
         if (job.timezone() != null) cmd.addAll(List.of("-e", "TZ=" + job.timezone()));
+        if (job.testFilter() != null) cmd.addAll(List.of("-e", "TEST_FILTER=" + job.testFilter()));
         // Starved CPU exposes tests that assume work finishes within a fixed time (tech doc section 9).
         if (job.strategy().equals("CPU_THROTTLE")) cmd.addAll(List.of("--cpus", "0.25"));
         cmd.add(image(job.jdk()));

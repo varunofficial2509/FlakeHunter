@@ -571,7 +571,7 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 ### Phase 3 — Agents (8–28 Dec)
 
 - [x] agent-service skeleton: FastAPI, Kafka consumer, Postgres checkpoints, budgets
-- [ ] Triage and investigator with `request_experiment` round trip through the orchestrator
+- [x] Triage and investigator with `request_experiment` round trip through the orchestrator
 - [ ] Classifier, fix writer, critic; verification runs
 - [ ] AI kill switch end to end, KEDA scale-to-zero for agent-service
 - [ ] Agent reasoning timeline and diff view in the UI

@@ -13,7 +13,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from app.budget import Budget
 from app.config import Settings
-from app.consumer import FINDING_DETECTED, consume
+from app.consumer import EXPERIMENT_COMPLETED, FINDING_DETECTED, consume, publisher
 from app.graph import build_graph
 from app.llm import make_llm
 
@@ -40,16 +40,23 @@ async def lifespan(app: FastAPI):
     async with open_pool(settings.database_url) as pool:
         checkpointer = AsyncPostgresSaver(pool)
         await checkpointer.setup()
-        graph = build_graph(make_llm(settings, "small"), Budget(pool, settings), checkpointer)
+        producer = AIOKafkaProducer(
+            bootstrap_servers=settings.kafka_bootstrap_servers, acks="all", enable_idempotence=True
+        )
+        graph = build_graph(
+            make_llm(settings, "small"),
+            make_llm(settings, "large"),
+            Budget(pool, settings),
+            checkpointer,
+            publisher(producer),
+        )
         consumer = AIOKafkaConsumer(
             FINDING_DETECTED,
+            EXPERIMENT_COMPLETED,
             bootstrap_servers=settings.kafka_bootstrap_servers,
             group_id="agents",
             enable_auto_commit=False,
             auto_offset_reset="earliest",  # findings sent while the service was scaled to zero still count
-        )
-        producer = AIOKafkaProducer(
-            bootstrap_servers=settings.kafka_bootstrap_servers, acks="all", enable_idempotence=True
         )
         await producer.start()
         await consumer.start()

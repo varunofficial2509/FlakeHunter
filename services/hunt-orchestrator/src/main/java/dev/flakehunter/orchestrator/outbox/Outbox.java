@@ -23,7 +23,13 @@ public class Outbox {
     // MANDATORY: called outside a transaction, the event could be saved while the state change is not.
     @Transactional(propagation = Propagation.MANDATORY)
     public void add(String topic, UUID huntId, Object payload) {
+        add(topic, huntId, huntId, payload);
+    }
+
+    /** Same, with another key, e.g. findingId for agent events (tech doc section 6). */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void add(String topic, UUID huntId, UUID key, Object payload) {
         EventEnvelope<Object> event = EventEnvelope.of(topic, huntId, payload);
-        events.save(new OutboxEvent(event.eventId(), topic, huntId.toString(), json.writeValueAsString(event)));
+        events.save(new OutboxEvent(event.eventId(), topic, key.toString(), json.writeValueAsString(event)));
     }
 }

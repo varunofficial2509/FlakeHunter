@@ -85,7 +85,9 @@ public final class Publisher {
         else status = RunCompleted.Status.SUCCEEDED;
         return new RunCompleted(run.runId(), run.strategy(), run.seed(), status, exitCode, durationMs,
                 cases.size(), count(cases, Status.PASSED), count(cases, Status.FAILED), count(cases, Status.ERROR),
-                count(cases, Status.SKIPPED));
+                count(cases, Status.SKIPPED), cases.stream()
+                        .filter(c -> c.status() == Status.FAILED || c.status() == Status.ERROR)
+                        .map(SurefireReports.Case::testId).limit(RunCompleted.MAX_FAILED_TESTS).toList());
     }
 
     private static Future<RecordMetadata> send(Producer<String, String> producer, String topic, String key,

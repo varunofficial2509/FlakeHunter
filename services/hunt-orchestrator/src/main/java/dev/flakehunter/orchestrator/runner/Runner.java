@@ -15,7 +15,8 @@ public interface Runner {
 
     record PrepareJob(UUID huntId, int jdk, String repoUrl, String commitSha, String mavenArgs, DataSize memory) {}
 
-    record RunJob(UUID huntId, UUID runId, int jdk, String strategy, Long seed, String timezone,
+    /** huntId names the prepared workspace: the hunt's own, or an experiment's. testFilter is Surefire -Dtest. */
+    record RunJob(UUID huntId, UUID runId, int jdk, String strategy, Long seed, String timezone, String testFilter,
             String mavenArgs, DataSize memory) {}
 
     /** Where runners live: Docker's VM, or the cluster's runner quota. Its memory, not the Mac's, is the limit. */
