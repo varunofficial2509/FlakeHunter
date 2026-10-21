@@ -132,7 +132,7 @@ class HuntExecutionTests {
         active.start();
         Run waiting = new Run(running.getId(), Strategy.SHUFFLE_ORDER, 7L, null);
         Run done = new Run(running.getId(), Strategy.BASELINE, null, null);
-        done.finish(Run.Status.SUCCEEDED);
+        done.finish(Run.Status.SUCCEEDED, null);
         runs.saveAll(List.of(active, waiting, done));
         Hunt preparing = hunts.save(huntIn(HuntStatus.PREPARING));
 
@@ -176,6 +176,6 @@ class HuntExecutionTests {
 
     private String runCompleted(UUID huntId, UUID runId, RunCompleted.Status status) {
         return json.writeValueAsString(EventEnvelope.of(Topics.RUN_COMPLETED, huntId,
-                new RunCompleted(runId, "BASELINE", null, status, 0, 1000, 21, 21, 0, 0, 0)));
+                new RunCompleted(runId, "BASELINE", null, status, 0, 1000, 21, 21, 0, 0, 0, List.of())));
     }
 }

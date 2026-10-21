@@ -11,6 +11,7 @@ import dev.flakehunter.events.TestResult.Status;
 import dev.flakehunter.events.Topics;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -106,7 +107,7 @@ class AnalysisFlowTests {
     private void completed(UUID hunt, UUID run, String strategy, RunCompleted.Status status, int total)
             throws Exception {
         send(Topics.RUN_COMPLETED, hunt.toString(), EventEnvelope.of(Topics.RUN_COMPLETED, hunt,
-                new RunCompleted(run, strategy, null, status, 1, 1000, total, 0, 0, 0, 0)));
+                new RunCompleted(run, strategy, null, status, 1, 1000, total, 0, 0, 0, 0, List.of())));
     }
 
     private void status(UUID hunt, Instant at, Map<String, Object> payload) throws Exception {

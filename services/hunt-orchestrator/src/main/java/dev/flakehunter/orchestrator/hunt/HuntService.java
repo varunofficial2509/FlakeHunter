@@ -36,15 +36,17 @@ class HuntService {
     private final ProjectClient projects;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate tx;
+    private final Experiments experiments;
 
     HuntService(HuntRepository hunts, RunRepository runs, Outbox outbox, ProjectClient projects,
-            ApplicationEventPublisher events, TransactionTemplate tx) {
+            ApplicationEventPublisher events, TransactionTemplate tx, Experiments experiments) {
         this.hunts = hunts;
         this.runs = runs;
         this.outbox = outbox;
         this.projects = projects;
         this.events = events;
         this.tx = tx;
+        this.experiments = experiments;
     }
 
     /**
@@ -98,8 +100,12 @@ class HuntService {
         return hunts.findByStatusIn(EnumSet.of(HuntStatus.CREATED, HuntStatus.PREPARING, HuntStatus.RUNNING));
     }
 
+    Hunt find(UUID huntId) {
+        return hunts.findById(huntId).orElseThrow(() -> new IllegalStateException("No hunt " + huntId));
+    }
+
     List<Run> unfinishedRuns(UUID huntId) {
-        return runs.findByHuntIdAndStatusIn(huntId, UNFINISHED);
+        return runs.findByHuntIdAndExperimentIdIsNullAndStatusIn(huntId, UNFINISHED);
     }
 
     @Transactional
@@ -107,9 +113,12 @@ class HuntService {
         runs.lockById(runId).filter(r -> r.getStatus() == Run.Status.SCHEDULED).ifPresent(Run::start);
     }
 
-    /** Records a run's outcome; when it was the hunt's last run, moves the hunt to ANALYZING. Idempotent. */
+    /**
+     * Records a run's outcome; when it was the hunt's last run, moves the hunt to ANALYZING, and when it was an
+     * experiment's last run, answers the experiment. Idempotent.
+     */
     @Transactional
-    void finishRun(UUID runId, Run.Status result) {
+    void finishRun(UUID runId, Run.Status result, List<String> failedTests) {
         Optional<Run> found = runs.lockById(runId);
         if (found.isEmpty()) {
             log.warn("Ignoring result for unknown run {}", runId); // e.g. a manual runner test
@@ -118,9 +127,11 @@ class HuntService {
         Run run = found.get();
         if (run.getStatus().isFinished()) return; // a duplicate, or the launcher already gave up on it
         Hunt hunt = lock(run.getHuntId());
-        run.finish(result);
-        if (hunt.getStatus() == HuntStatus.RUNNING
-                && runs.countByHuntIdAndStatusIn(hunt.getId(), UNFINISHED) == 0) {
+        run.finish(result, failedTests);
+        if (run.getExperimentId() != null) {
+            experiments.runFinished(run);
+        } else if (hunt.getStatus() == HuntStatus.RUNNING
+                && runs.countByHuntIdAndExperimentIdIsNullAndStatusIn(hunt.getId(), UNFINISHED) == 0) {
             hunt.moveTo(HuntStatus.ANALYZING);
             emit(hunt, HuntStatus.RUNNING, Map.of());
         }

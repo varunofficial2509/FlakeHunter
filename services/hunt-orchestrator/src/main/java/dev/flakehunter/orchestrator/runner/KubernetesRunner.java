@@ -115,6 +115,7 @@ public class KubernetesRunner implements Runner, AutoCloseable {
                 new EnvVar("RUN_TIMEOUT_SECONDS", String.valueOf(props.runTimeout().toSeconds()), null)));
         if (job.seed() != null) env.add(new EnvVar("SEED", job.seed().toString(), null));
         if (job.timezone() != null) env.add(new EnvVar("TZ", job.timezone(), null));
+        if (job.testFilter() != null) env.add(new EnvVar("TEST_FILTER", job.testFilter(), null));
         // Starved CPU exposes tests that assume work finishes within a fixed time (tech doc section 9).
         String cpuLimit = job.strategy().equals("CPU_THROTTLE") ? "250m" : null;
         Container container = container(image(job.jdk()), job.memory(), cpuLimit, env, List.of(

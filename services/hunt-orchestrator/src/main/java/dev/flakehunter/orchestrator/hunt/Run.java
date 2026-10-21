@@ -6,7 +6,10 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** One execution of the test suite in one runner container. */
 @Entity
@@ -38,6 +41,13 @@ class Run {
     private Instant startedAt;
     private Instant finishedAt;
 
+    // Experiment runs only: which experiment, which tests to run, and which of them failed.
+    private UUID experimentId;
+    private String testFilter;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<String> failedTests;
+
     protected Run() {} // for JPA
 
     Run(UUID huntId, Strategy strategy, Long seed, String timezone) {
@@ -49,13 +59,20 @@ class Run {
         this.status = Status.SCHEDULED;
     }
 
+    Run(UUID huntId, Strategy strategy, Long seed, String timezone, UUID experimentId, String testFilter) {
+        this(huntId, strategy, seed, timezone);
+        this.experimentId = experimentId;
+        this.testFilter = testFilter;
+    }
+
     void start() {
         status = Status.RUNNING;
         startedAt = Instant.now();
     }
 
-    void finish(Status result) {
+    void finish(Status result, List<String> failed) {
         status = result;
+        failedTests = failed;
         finishedAt = Instant.now();
     }
 
@@ -65,4 +82,7 @@ class Run {
     Long getSeed() { return seed; }
     String getTimezone() { return timezone; }
     Status getStatus() { return status; }
+    UUID getExperimentId() { return experimentId; }
+    String getTestFilter() { return testFilter; }
+    List<String> getFailedTests() { return failedTests; }
 }
