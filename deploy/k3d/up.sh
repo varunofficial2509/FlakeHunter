@@ -26,6 +26,9 @@ for s in "${SERVICES[@]}"; do
 done
 docker build --quiet --build-arg NODE_IMAGE --build-arg NGINX_IMAGE -t "$REGISTRY/flakehunter/web:$TAG" web
 docker push --quiet "$REGISTRY/flakehunter/web:$TAG"
+docker build --quiet --build-arg PYTHON_IMAGE --build-arg UV_IMAGE -t "$REGISTRY/flakehunter/agent-service:$TAG" \
+  services/agent-service
+docker push --quiet "$REGISTRY/flakehunter/agent-service:$TAG"
 
 # Runner images keep their jdkN tags (Jobs pull them with imagePullPolicy Always). Building all four takes a
 # while the first time; RUNNER_JDKS="17" deploy/k3d/up.sh builds only what your projects use.
@@ -44,6 +47,11 @@ if ! kubectl --context "$CONTEXT" -n "$NS" get secret flakehunter-secrets >/dev/
     --from-literal=admin-password="$FLAKEHUNTER_ADMIN_PASSWORD" \
     --from-literal=jwt-secret="$(openssl rand -base64 48)" \
     --from-literal=postgres-password="$(openssl rand -hex 24)"
+fi
+# Optional, and replaceable on any run: GEMINI_API_KEY=... deploy/k3d/up.sh. Without it the agents use a fake LLM.
+if [[ -n "${GEMINI_API_KEY:-}" ]]; then
+  kubectl --context "$CONTEXT" -n "$NS" patch secret flakehunter-secrets --type merge \
+    -p "{\"stringData\":{\"gemini-api-key\":\"$GEMINI_API_KEY\"}}"
 fi
 
 # KEDA first: our chart's ScaledObject needs its CRDs.
