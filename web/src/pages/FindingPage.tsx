@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
-import { api, type Finding } from "../api";
+import { api, type ExperimentProgress, type Finding } from "../api";
+import { Busy, isRunning, progressText } from "./Busy";
 import { Diff } from "./Diff";
 
 const OUTCOME: Record<string, string> = {
@@ -22,11 +23,25 @@ export function FindingPage() {
     refetchInterval: (query) =>
       query.state.data?.diagnosis?.status ? false : 3000,
   });
+  const huntId = finding.data?.huntId;
+  const over = !!finding.data?.diagnosis?.status;
+  const experiments = useQuery({
+    queryKey: ["experiments", huntId],
+    queryFn: () =>
+      api<ExperimentProgress[]>(`/api/hunts/${huntId}/experiments`),
+    enabled: !!huntId && !over,
+    refetchInterval: 3000,
+  });
 
   if (finding.error) return <p role="alert">{finding.error.message}</p>;
   if (!finding.data) return <p>Loading…</p>;
   const f = finding.data;
   const d = f.diagnosis;
+  const running = over
+    ? []
+    : (experiments.data ?? []).filter(
+        (e) => e.findingId === f.id && isRunning(e),
+      );
 
   return (
     <>
@@ -39,7 +54,7 @@ export function FindingPage() {
       <p>
         Failed {f.evidence.failures}/{f.evidence.runs} runs, triggered by{" "}
         {f.evidence.triggeringStrategies.join(", ") ||
-          "nothing: it fails without any change"}
+          "nothing extra: it fails in the default setup too (UTC, normal test order)"}
         .
       </p>
 
@@ -53,7 +68,11 @@ export function FindingPage() {
       {d && (
         <p>
           <strong>
-            {d.status ? (OUTCOME[d.status] ?? d.status) : "Diagnosing…"}
+            {d.status ? (
+              (OUTCOME[d.status] ?? d.status)
+            ) : (
+              <Busy>Diagnosing</Busy>
+            )}
           </strong>
           {d.category && (
             <>
@@ -96,6 +115,11 @@ export function FindingPage() {
                   </div>
                 )}
                 {s.diff && <Diff diff={s.diff} />}
+              </li>
+            ))}
+            {running.map((e) => (
+              <li key={e.id}>
+                <Busy>{progressText(e)}</Busy>
               </li>
             ))}
           </ol>

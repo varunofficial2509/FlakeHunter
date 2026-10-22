@@ -199,8 +199,8 @@ def describe(experiment: dict[str, Any]) -> str:
     result = experiment["result"]
     if result["status"] != "COMPLETED":
         return f"Experiment {result['status'].lower()}: {result.get('reason')}"
-    counts = ", ".join(f"{t['test']} failed {t['failures']}/{result['runs']}" for t in result["tests"])
-    return f"{experiment['hypothesis']}: {counts}"
+    # The hypothesis is already on the step that asked for this experiment.
+    return "Result: " + ", ".join(f"{t['test']} failed {t['failures']}/{result['runs']}" for t in result["tests"])
 
 
 def verdict(result: dict[str, Any]) -> str | None:

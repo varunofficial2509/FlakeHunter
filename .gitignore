@@ -43,3 +43,7 @@ benchmark/.work/
 # Python bytecode
 __pycache__/
 *.pyc
+*.tsbuildinfo
+
+# Maven output of the benchmark control project
+benchmark/control/target/

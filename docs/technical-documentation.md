@@ -260,7 +260,7 @@ Every state change that another service cares about is a Kafka event; keys are c
 - **Outbox:** hunt-orchestrator and result-aggregator write events to an `outbox` table in the same DB transaction; a relay publishes them (polling first, Debezium optional).
 - **Retries:** 3 retries with backoff inside the consumer, then publish to `<topic>.dlq` with the error.
 - **Retention:** `test.results` 3 days, others 14 days; Postgres is the system of record.
-- **Tracing:** `traceparent` propagated through headers so one hunt is one trace across Java, Kafka and Python.
+- **Tracing:** `traceparent` propagated through Kafka headers, and stored with each outbox row so the relay sends the event inside the trace that wrote it. A request or an event chain (finding → agents → experiment runs → answer) is one trace across Java, Kafka and Python.
 
 ## 7. Data model
 
@@ -468,7 +468,7 @@ One hunt should be traceable end to end in Grafana, any pod should be killable w
 
 ### Observability
 
-- **Tracing:** OpenTelemetry Java agent on Spring services, OpenTelemetry SDK in Python; `traceparent` in Kafka headers; one trace per hunt in Tempo or Jaeger.
+- **Tracing:** Micrometer Tracing with the OpenTelemetry bridge on Spring services (no Java agent), OpenTelemetry SDK in Python; `traceparent` in Kafka headers and outbox rows; Tempo, queried from Grafana. Probes, scrapes and scheduled polls are not traced. Not one trace per hunt: runner pods are not instrumented, so each run's results start their own trace.
 - **Metrics (Prometheus):** hunts by status, runs in flight, runner pod count, Job duration, `test.results` throughput, consumer lag per group, findings per hunt, agent session duration, LLM tokens and cost, verification pass rate.
 - **Dashboards (Grafana):** Platform (lag, pods, errors), Hunt (progress, run outcomes), AI (tokens, cost, sessions, kill-switch state).
 - **Logs:** structured JSON with `huntId`, `findingId`, `traceId` on every line.
@@ -580,9 +580,9 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 ### Phase 4 — Production and showcase (29 Dec – 18 Jan)
 
-- [ ] OpenTelemetry tracing across services; AI and hunt dashboards
+- [x] OpenTelemetry tracing across services; AI and hunt dashboards
 - [ ] GitHub App: webhook-triggered hunts and PR comments
-- [ ] GitHub Actions CI/CD with multi-arch images
+- [x] GitHub Actions CI/CD with multi-arch images
 - [ ] Cloud deploy with scripted create/destroy
 - [ ] Benchmark run and results table
 - [ ] README, demo video, first write-up

@@ -27,16 +27,19 @@ class OutboxEvent {
     @JdbcTypeCode(SqlTypes.JSON)
     private String payload;
 
+    private String traceparent; // null when the event was added outside a trace
+
     private Instant createdAt;
     private Instant publishedAt;
 
     protected OutboxEvent() {} // for JPA
 
-    OutboxEvent(UUID id, String topic, String key, String payload) {
+    OutboxEvent(UUID id, String topic, String key, String payload, String traceparent) {
         this.id = id;
         this.topic = topic;
         this.key = key;
         this.payload = payload;
+        this.traceparent = traceparent;
         this.createdAt = Instant.now();
     }
 
@@ -48,5 +51,6 @@ class OutboxEvent {
     String getTopic() { return topic; }
     String getKey() { return key; }
     String getPayload() { return payload; }
+    String getTraceparent() { return traceparent; }
     Instant getPublishedAt() { return publishedAt; }
 }

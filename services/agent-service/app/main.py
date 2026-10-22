@@ -16,6 +16,7 @@ from app.config import Settings
 from app.consumer import EXPERIMENT_COMPLETED, FINDING_DETECTED, FIX_VERIFIED, consume, publisher
 from app.graph import build_graph
 from app.llm import make_llm
+from app.tracing import setup as setup_tracing
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -36,6 +37,7 @@ def open_pool(database_url: str) -> AsyncConnectionPool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = Settings()
+    tracing = setup_tracing()
     await asyncio.to_thread(migrate, settings.database_url)
     async with open_pool(settings.database_url) as pool:
         checkpointer = AsyncPostgresSaver(pool)
@@ -69,9 +71,17 @@ async def lifespan(app: FastAPI):
             app.state.consumer.cancel()
             await consumer.stop()
             await producer.stop()
+            if tracing:
+                tracing.shutdown()  # sends the spans still in the batch
 
 
-app = FastAPI(title="agent-service", lifespan=lifespan)
+# FastAPI's own telemetry would install a second tracer provider from the OTEL_* variables and trace every
+# /health probe; app/tracing.py traces the Kafka work instead.
+app = FastAPI(
+    title="agent-service",
+    lifespan=lifespan,
+    telemetry={"tracing": False, "metrics": False, "logs": False, "auto_configure": False},
+)
 
 
 @app.get("/health")

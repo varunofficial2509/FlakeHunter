@@ -1,0 +1,25 @@
+{
+  "target": "fastjson",
+  "sha": "e05e9c5e4be580691cc55a59f3256595393203a1",
+  "huntId": "2c00c352-94b8-4cc2-8f7b-04c342b722d5",
+  "status": "AWAITING_AI",
+  "budget": {
+    "maxRuns": 20,
+    "maxParallelPods": 2
+  },
+  "at": "2026-10-22T14:38:46+00:00",
+  "detectionSeconds": 192,
+  "totalSeconds": 193,
+  "findings": [
+    {
+      "testId": "com.alibaba.json.bvt.serializer.date.DateTest4_indian#test_date",
+      "score": 0.941,
+      "failures": 16,
+      "runs": 20,
+      "triggeredBy": [],
+      "outcome": null,
+      "category": null,
+      "tokens": 0
+    }
+  ]
+}

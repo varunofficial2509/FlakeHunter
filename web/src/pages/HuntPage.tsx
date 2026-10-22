@@ -1,10 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
-import { api, type Finding, type Hunt } from "../api";
+import { api, type ExperimentProgress, type Finding, type Hunt } from "../api";
+import { Busy, isRunning, progressText } from "./Busy";
 
 const FINISHED = ["COMPLETED", "FAILED", "CANCELLED"];
 // Detection is over in these: the findings are final, agents may still be diagnosing them.
 const ANALYZED = ["COMPLETED", "DIAGNOSING", "AWAITING_AI"];
+
+function diagnosisCell(f: Finding, experiments: ExperimentProgress[]) {
+  if (f.diagnosis?.status) return f.diagnosis.status;
+  if (!f.diagnosis) return "waiting";
+  const running = experiments.find((e) => e.findingId === f.id && isRunning(e));
+  return <Busy>{running ? progressText(running) : "diagnosing"}</Busy>;
+}
 
 export function HuntPage() {
   const { id } = useParams();
@@ -23,6 +31,12 @@ export function HuntPage() {
     // While agents work, their status per finding changes.
     refetchInterval: hunt.data?.status === "COMPLETED" ? false : 3000,
   });
+  const experiments = useQuery({
+    queryKey: ["experiments", id],
+    queryFn: () => api<ExperimentProgress[]>(`/api/hunts/${id}/experiments`),
+    enabled: done && hunt.data?.status !== "COMPLETED",
+    refetchInterval: 3000,
+  });
 
   if (hunt.error) return <p role="alert">{hunt.error.message}</p>;
   if (!hunt.data) return <p>Loading…</p>;
@@ -35,9 +49,15 @@ export function HuntPage() {
       </p>
       <h1>Hunt {h.commitSha.slice(0, 8)}</h1>
       <p>
-        Status: <strong>{h.status}</strong>
-        {!FINISHED.includes(h.status) && " (refreshing…)"} · up to{" "}
-        {h.budget.maxRuns} runs, {h.budget.maxParallelPods} at a time
+        Status:{" "}
+        <strong>
+          {FINISHED.includes(h.status) || h.status === "AWAITING_AI" ? (
+            h.status
+          ) : (
+            <Busy>{h.status}</Busy>
+          )}
+        </strong>{" "}
+        · up to {h.budget.maxRuns} runs, {h.budget.maxParallelPods} at a time
       </p>
       {h.failureReason && <p role="alert">{h.failureReason}</p>}
       {h.status === "AWAITING_AI" && (
@@ -76,12 +96,9 @@ export function HuntPage() {
                     </td>
                     <td>
                       {f.evidence.triggeringStrategies.join(", ") ||
-                        "fails without any change"}
+                        "nothing extra: fails in the default setup (UTC, normal order)"}
                     </td>
-                    <td>
-                      {f.diagnosis?.status ??
-                        (f.diagnosis ? "diagnosing…" : "waiting")}
-                    </td>
+                    <td>{diagnosisCell(f, experiments.data ?? [])}</td>
                   </tr>
                 ))}
               </tbody>

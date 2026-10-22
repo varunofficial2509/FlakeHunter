@@ -12,6 +12,18 @@ data:
         type: prometheus
         url: http://prometheus:9090
         isDefault: true
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        url: http://tempo:3200
+      # The hunts and AI dashboards read the services' tables directly, as a role that can only read.
+      - name: Postgres
+        uid: postgres
+        type: grafana-postgresql-datasource
+        url: postgres:5432
+        user: grafana_reader
+        jsonData: { database: flakehunter, sslmode: disable, postgresVersion: 1600, maxOpenConns: 2 }
+        secureJsonData: { password: $POSTGRES_PASSWORD }
   dashboards.yaml: |
     apiVersion: 1
     providers:
@@ -26,6 +38,10 @@ metadata:
 data:
   platform.json: |-
 {{ .Files.Get "files/platform-dashboard.json" | indent 4 }}
+  hunts.json: |-
+{{ .Files.Get "files/hunts-dashboard.json" | indent 4 }}
+  ai.json: |-
+{{ .Files.Get "files/ai-dashboard.json" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -54,6 +70,8 @@ spec:
             - { name: GF_SECURITY_ADMIN_USER, value: admin }
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: admin-password } }
+            - name: POSTGRES_PASSWORD # for grafana_reader, read by datasources.yaml
+              valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: postgres-password } }
             - { name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH, value: /var/lib/grafana/dashboards/platform.json }
             - { name: GF_PLUGINS_PREINSTALL_DISABLED, value: "true" } # no plugin downloads at startup; core ones suffice
             - { name: GF_ANALYTICS_REPORTING_ENABLED, value: "false" }
@@ -84,3 +102,42 @@ spec:
   selector: { app: grafana }
   ports:
     - port: 3000
+---
+# The read-only role the Postgres datasource logs in as. Anonymous viewers can send it any query, so it may only
+# read (pg_read_all_data, read-only transactions) and each query stops after 10 s.
+# shortcut: it shares the owner's password from the secret; give it its own key if anyone else gets access.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: grafana-db-reader
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: {{ .Values.postgres.image }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              psql -v ON_ERROR_STOP=1 -v pw="$PGPASSWORD" <<'SQL'
+              SELECT 'CREATE ROLE grafana_reader' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grafana_reader')\gexec
+              ALTER ROLE grafana_reader LOGIN PASSWORD :'pw';
+              GRANT pg_read_all_data TO grafana_reader;
+              ALTER ROLE grafana_reader SET default_transaction_read_only = on;
+              ALTER ROLE grafana_reader SET statement_timeout = '10s';
+              SQL
+          env:
+            - { name: PGHOST, value: postgres }
+            - { name: PGUSER, value: flakehunter }
+            - { name: PGDATABASE, value: flakehunter }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: postgres-password } }
+          resources:
+            limits: { memory: 64Mi }
