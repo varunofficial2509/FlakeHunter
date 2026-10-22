@@ -43,3 +43,4 @@ benchmark/.work/
 # Python bytecode
 __pycache__/
 *.pyc
+*.tsbuildinfo

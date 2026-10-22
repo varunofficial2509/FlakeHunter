@@ -109,6 +109,18 @@ export type Finding = {
   diagnosis: Diagnosis | null; // null until an agent session reports
 };
 
+/** Run counts of one experiment or fix verification an agent asked for. */
+export type ExperimentProgress = {
+  id: string;
+  findingId: string;
+  verification: boolean;
+  status: "PREPARING" | "RUNNING" | "COMPLETED" | "REJECTED" | "FAILED";
+  planned: number;
+  finished: number;
+  failing: number; // runs where a planned test failed
+  crashed: number; // runs that ended without results
+};
+
 /** The agents' session for one finding; status is null while it runs. */
 export type Diagnosis = {
   status: string | null;
