@@ -157,6 +157,10 @@ async def test_requests_an_experiment_then_fixes_and_verifies(pool):
 
     state = await graph.aget_state(thread(env["payload"]["findingId"]))
     assert state.values["status"] == "FIX_VERIFIED"
+    topic, _, _, diagnosis = published[-1]  # tells the orchestrator this finding is done
+    assert topic == "diagnosis.completed"
+    assert diagnosis["status"] == "FIX_VERIFIED" and diagnosis["category"] == "TIME_DEPENDENT"
+    assert diagnosis["patch"] == request["patch"]
     assert state.values["classification"]["category"] == "TIME_DEPENDENT"
     assert state.values["sources"] == {SOURCE: CODE}
     assert "sources" not in state.values["experiments"][0]["result"]  # kept once, not per experiment

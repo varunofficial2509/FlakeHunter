@@ -82,6 +82,13 @@ export type HuntOptions = {
   defaults: Budget;
 };
 
+/** The AI kill switch; available is false under Compose, which runs no agents. */
+export type AiSettings = {
+  enabled: boolean;
+  available: boolean;
+  pendingFindings: number;
+};
+
 export type RunnerSettings = {
   memoryMb: number;
   totalMemoryMb: number;

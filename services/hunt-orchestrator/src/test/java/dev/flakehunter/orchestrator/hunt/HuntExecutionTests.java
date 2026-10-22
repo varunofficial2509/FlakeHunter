@@ -28,7 +28,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
-/** The saga from POST to COMPLETED, with Docker and project-service replaced by mocks and real Kafka. */
+/** The saga from POST to the end of the analysis, with Docker and project-service replaced by mocks and real Kafka. */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 class HuntExecutionTests {
@@ -89,7 +89,8 @@ class HuntExecutionTests {
                 new AnalysisCompleted(5, 21, 1)));
         kafka.send(Topics.ANALYSIS_COMPLETED, huntId.toString(), analysis).get();
         kafka.send(Topics.ANALYSIS_COMPLETED, huntId.toString(), analysis).get(); // duplicate is ignored
-        await().atMost(Duration.ofSeconds(15)).until(() -> status(huntId) == HuntStatus.COMPLETED);
+        // Tests run like Compose, without agents, so its finding waits for AI (AiSwitchTests has the rest).
+        await().atMost(Duration.ofSeconds(15)).until(() -> status(huntId) == HuntStatus.AWAITING_AI);
     }
 
     @Test

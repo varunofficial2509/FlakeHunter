@@ -1,6 +1,7 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import dev.flakehunter.events.AnalysisCompleted;
+import dev.flakehunter.events.DiagnosisCompleted;
 import dev.flakehunter.events.EventEnvelope;
 import dev.flakehunter.events.ExperimentRequested;
 import dev.flakehunter.events.RunCompleted;
@@ -23,6 +24,7 @@ class HuntEventsListener {
 
     private static final TypeReference<EventEnvelope<ExperimentRequested>> EXPERIMENT = new TypeReference<>() {};
     private static final TypeReference<EventEnvelope<SourcesExported>> SOURCES = new TypeReference<>() {};
+    private static final TypeReference<EventEnvelope<DiagnosisCompleted>> DIAGNOSIS = new TypeReference<>() {};
 
     private final HuntService hunts;
     private final Experiments experiments;
@@ -72,6 +74,13 @@ class HuntEventsListener {
     void onSourcesExported(String message) {
         SourcesExported sources = json.readValue(message, SOURCES).payload();
         experiments.exported(sources.experimentId(), sources.files());
+    }
+
+    // Idempotent on its own: one diagnoses row per finding.
+    @KafkaListener(topics = Topics.DIAGNOSIS_COMPLETED)
+    void onDiagnosisCompleted(String message) {
+        EventEnvelope<DiagnosisCompleted> event = json.readValue(message, DIAGNOSIS);
+        hunts.diagnosed(event.huntId(), event.payload().findingId(), event.payload().status());
     }
 
     private boolean firstTime(UUID eventId) {
