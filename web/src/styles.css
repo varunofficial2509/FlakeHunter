@@ -43,3 +43,32 @@ td {
   padding: 6px 8px;
   border-bottom: 1px solid #8884;
 }
+
+.diff {
+  overflow-x: auto;
+  padding: 8px;
+  border: 1px solid #8884;
+  font-size: 13px;
+}
+
+.diff .add {
+  background: color-mix(in srgb, #2a2 20%, transparent);
+}
+
+.diff .del {
+  background: color-mix(in srgb, #d33 20%, transparent);
+}
+
+.diff .hunk,
+.diff .file {
+  opacity: 0.6;
+}
+
+.timeline li {
+  margin-bottom: 12px;
+}
+
+.timeline time,
+.timeline .plan {
+  opacity: 0.7;
+}

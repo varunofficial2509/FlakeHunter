@@ -97,7 +97,7 @@ class AiSwitchTests {
     }
 
     private static DiagnosisCompleted diagnosis(UUID findingId) {
-        return new DiagnosisCompleted(findingId, "UNKNOWN", null, null, "nothing proven", null);
+        return new DiagnosisCompleted(findingId, "UNKNOWN", null, null, "nothing proven", null, List.of());
     }
 
     private void send(String topic, UUID huntId, Object payload) throws Exception {

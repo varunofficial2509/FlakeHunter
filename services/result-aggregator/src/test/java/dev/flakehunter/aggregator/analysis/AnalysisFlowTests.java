@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import dev.flakehunter.aggregator.TestcontainersConfiguration;
+import dev.flakehunter.events.DiagnosisCompleted;
 import dev.flakehunter.events.EventEnvelope;
 import dev.flakehunter.events.RunCompleted;
 import dev.flakehunter.events.TestResult;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -66,6 +68,29 @@ class AnalysisFlowTests {
                 .extractingPath("$[0].evidence.triggeringStrategies").asArray().containsExactly("SHUFFLE_ORDER");
         assertThat(mvc.get().uri("/api/findings?huntId=" + hunt)).bodyJson()
                 .extractingPath("$[0].evidence.runs").isEqualTo(4);
+
+        // The agents report on the finding: two updates, the end, then an update that arrives late.
+        UUID finding = jdbc.sql("SELECT id FROM results.findings WHERE hunt_id = ?").param(hunt)
+                .query(UUID.class).single();
+        diagnosis(hunt, Topics.DIAGNOSIS_UPDATED, finding, null, 1);
+        diagnosis(hunt, Topics.DIAGNOSIS_UPDATED, finding, null, 2);
+        diagnosis(hunt, Topics.DIAGNOSIS_COMPLETED, finding, "FIX_VERIFIED", 3);
+        diagnosis(hunt, Topics.DIAGNOSIS_UPDATED, finding, null, 2);
+        await().atMost(Duration.ofSeconds(15)).until(() -> jdbc.sql(
+                "SELECT status FROM results.diagnoses WHERE finding_id = ?").param(finding).query(String.class)
+                .optional().isPresent());
+        Thread.sleep(500); // give the late update time to be (not) applied
+        assertThat(mvc.get().uri("/api/findings/" + finding)).bodyJson()
+                .extractingPath("$.diagnosis.status").isEqualTo("FIX_VERIFIED");
+        assertThat(mvc.get().uri("/api/findings/" + finding)).bodyJson()
+                .extractingPath("$.diagnosis.steps").asArray().hasSize(3);
+    }
+
+    private void diagnosis(UUID hunt, String topic, UUID finding, String status, int steps) throws Exception {
+        List<Map<String, Object>> timeline = IntStream.range(0, steps)
+                .mapToObj(i -> Map.<String, Object>of("agent", "investigator", "summary", "step " + i)).toList();
+        send(topic, finding.toString(), EventEnvelope.of(topic, hunt,
+                new DiagnosisCompleted(finding, status, null, null, null, null, timeline)));
     }
 
     @Test

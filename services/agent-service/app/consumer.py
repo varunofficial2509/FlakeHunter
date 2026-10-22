@@ -88,6 +88,7 @@ async def consume(graph: CompiledStateGraph, consumer: AIOKafkaConsumer, produce
                     "confidence": None,
                     "explanation": "The agent session failed; its event is in " + msg.topic + DLQ_SUFFIX,
                     "patch": None,
+                    "steps": [],
                 }
                 await publish(DIAGNOSIS_COMPLETED, finding_id, event["huntId"], failed)
         await consumer.commit()
