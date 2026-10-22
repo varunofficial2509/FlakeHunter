@@ -1,0 +1,69 @@
+{
+  "control": {
+    "about": "One seeded flaky test per root cause (benchmark/control). NETWORK is left out: a test that calls the internet would make the benchmark itself flaky.",
+    "repoUrl": "https://github.com/varunofficial2509/FlakeHunter",
+    "sha": null,
+    "testCommand": "-f benchmark/control/pom.xml",
+    "jdkVersion": 21,
+    "flaky": {
+      "dev.flakehunter.control.PriceLookupTest#readsAWarmedPrice": {
+        "category": "ORDER_DEPENDENCY",
+        "why": "Reads a cache that only CacheWarmupTest fills, so it passes only when that class ran first."
+      },
+      "dev.flakehunter.control.AmountFormatTest#formatsTwoDecimals": {
+        "category": "SHARED_STATE",
+        "also": ["ORDER_DEPENDENCY"],
+        "why": "LocaleSwitchTest sets the default locale to German and never restores it; afterwards 1.5 prints as 1,50."
+      },
+      "dev.flakehunter.control.ReportDateTest#printsTheEpochAsMidnight": {
+        "category": "TIME_DEPENDENT",
+        "why": "Expects the epoch as midnight, which holds only in UTC; fails under the TIMEZONE strategy."
+      },
+      "dev.flakehunter.control.VisitCounterTest#countsVisitsFromTwoThreads": {
+        "category": "CONCURRENCY",
+        "why": "Unsynchronized read-modify-write from two threads loses an update when a save is slow."
+      },
+      "dev.flakehunter.control.EmailSenderTest#sendsTheEmailInTheBackground": {
+        "category": "ASYNC_WAIT",
+        "why": "Sleeps a fixed 50 ms for background work that takes 20 to 70 ms instead of waiting for it."
+      },
+      "dev.flakehunter.control.TeamDraftTest#firstTeamHasACaptain": {
+        "category": "RANDOMNESS",
+        "why": "An unseeded shuffle leaves both captains out of the first team about 1 time in 6."
+      },
+      "dev.flakehunter.control.TagListTest#listsTagsInTheOrderAdded": {
+        "category": "UNORDERED_COLLECTION",
+        "why": "Assumes a HashSet keeps insertion order; the order follows identity hashes, which change with allocation history."
+      },
+      "dev.flakehunter.control.ExportLockTest#takesTheExportLock": {
+        "category": "RESOURCE_LEAK",
+        "also": ["ORDER_DEPENDENCY", "SHARED_STATE"],
+        "why": "ImportJobTest creates the same lock file in the temp directory and never deletes it."
+      }
+    },
+    "alsoFlaky": {
+      "dev.flakehunter.control.CacheWarmupTest#warmsTheCache": "Races PriceLookupTest on an unsynchronized HashMap under PARALLEL (rare).",
+      "dev.flakehunter.control.ImportJobTest#runsWhileHoldingTheLock": "ExportLockTest deletes the shared lock file while it runs under PARALLEL."
+    }
+  },
+  "fastjson": {
+    "about": "Real flaky tests from IDoFT, reproduced in Phase 0 (benchmark/targets.md).",
+    "repoUrl": "https://github.com/alibaba/fastjson",
+    "sha": "e05e9c5e4be580691cc55a59f3256595393203a1",
+    "testCommand": "-Djdk.version=1.8 -Dtest=**/serializer/date/*Test*",
+    "jdkVersion": 8,
+    "flaky": {
+      "com.alibaba.json.bvt.serializer.date.DateTest4_indian#test_date": {
+        "category": "SHARED_STATE",
+        "also": ["ORDER_DEPENDENCY", "TIME_DEPENDENT"],
+        "why": "DateTest.setUp sets the global JSON.defaultTimeZone and defaultLocale and never resets them (fixed upstream in PR 2148)."
+      },
+      "com.alibaba.json.bvt.serializer.date.DateTest5_iso8601#test_date": {
+        "category": "SHARED_STATE",
+        "also": ["ORDER_DEPENDENCY", "TIME_DEPENDENT"],
+        "why": "Same polluter as DateTest4_indian."
+      }
+    },
+    "alsoFlaky": {}
+  }
+}

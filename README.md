@@ -55,6 +55,20 @@ Agents (Phase 3): `agent-service` (Python) reads `finding.detected` and runs one
 | Pause (keeps data) | `k3d cluster stop flakehunter`, later `k3d cluster start flakehunter`            |
 | Delete everything  | `k3d cluster delete flakehunter` (also deletes the data and the registry)        |
 
+## Benchmark
+
+`benchmark/run.py` hunts every target in `benchmark/expected.json` through the API and scores the findings: flaky tests found, false positives, whether the agents named the right root cause, fixes proposed and verified, tokens per finding, and detection time. Results land in `benchmark/results/` and the table in [`benchmark/results.md`](benchmark/results.md), misses included.
+
+- **control** (`benchmark/control`): one seeded flaky test per root cause (order dependency, shared state, time zone, concurrency, async wait, randomness, unordered collection, resource leak) plus stable tests that must never be reported. The tests carry no hints, since the agents read them; `expected.json` says why each one flakes.
+- **fastjson**: two real flaky tests from IDoFT, reproduced in Phase 0 (`benchmark/targets.md`).
+
+```bash
+FLAKEHUNTER_ADMIN_PASSWORD=... python3 benchmark/run.py            # all targets, 40 runs, 2 at a time
+python3 benchmark/run.py --report                                  # rebuild results.md from saved runs
+```
+
+The control target hunts this repository at the newest pushed commit that changed `benchmark/control`, so push before running it. With AI off the script scores detection only.
+
 ## CI and images
 
 Every pull request and every push to `develop` or `main` runs `.github/workflows/ci.yml`: the Gradle build with all Java tests (Testcontainers on the runner's Docker), agent-service lint and tests, the web typecheck, build and tests, `helm lint`, and the pre-commit hooks (formatting, secret scan).
