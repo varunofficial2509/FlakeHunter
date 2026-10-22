@@ -36,3 +36,11 @@ management:
     web:
       exposure:
         include: health,prometheus # Prometheus scrapes this inside the cluster; the ingress only routes /api
+  tracing:
+    sampling:
+      probability: 1.0 # one user and few requests: keep every trace
+    # Spans go to Tempo only where MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT is set (the Helm chart).
+  observations:
+    enable:
+      tasks.scheduled: false # a trace for every 1 s outbox poll would bury the real ones
+      spring.security: false # its filter-chain spans would still trace every probe (see ApiGatewayApplication)

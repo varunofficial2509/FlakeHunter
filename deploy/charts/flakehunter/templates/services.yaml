@@ -41,6 +41,7 @@ spec:
           ports:
             - containerPort: {{ $svc.port }}
           env:
+            - { name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT, value: http://tempo:4318/v1/traces }
             {{- if $svc.database }}
             - name: SPRING_DATASOURCE_URL
               value: jdbc:postgresql://postgres:5432/flakehunter

@@ -33,6 +33,7 @@ spec:
             - name: FLAKEHUNTER_DATABASE_URL # the password is hex, so it is safe inside a URL
               value: postgresql://flakehunter:$(POSTGRES_PASSWORD)@postgres:5432/flakehunter
             - { name: FLAKEHUNTER_KAFKA_BOOTSTRAP_SERVERS, value: kafka:9092 }
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: http://tempo:4318 } # app/tracing.py
             - name: GEMINI_API_KEY # without it the service runs with a fake LLM
               valueFrom: { secretKeyRef: { name: {{ .Values.secretName }}, key: gemini-api-key, optional: true } }
           resources:

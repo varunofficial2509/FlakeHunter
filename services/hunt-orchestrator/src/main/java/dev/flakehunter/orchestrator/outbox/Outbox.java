@@ -1,6 +1,10 @@
 package dev.flakehunter.orchestrator.outbox;
 
 import dev.flakehunter.events.EventEnvelope;
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -30,6 +34,14 @@ public class Outbox {
     @Transactional(propagation = Propagation.MANDATORY)
     public void add(String topic, UUID huntId, UUID key, Object payload) {
         EventEnvelope<Object> event = EventEnvelope.of(topic, huntId, payload);
-        events.save(new OutboxEvent(event.eventId(), topic, key.toString(), json.writeValueAsString(event)));
+        events.save(new OutboxEvent(event.eventId(), topic, key.toString(), json.writeValueAsString(event),
+                traceparent()));
+    }
+
+    /** The current trace as a W3C traceparent header value, or null outside a trace (e.g. in tests). */
+    private static String traceparent() {
+        Map<String, String> headers = new HashMap<>();
+        W3CTraceContextPropagator.getInstance().inject(Context.current(), headers, Map::put);
+        return headers.get("traceparent");
     }
 }

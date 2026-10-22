@@ -7,7 +7,10 @@ from uuid import uuid4
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
+from opentelemetry.trace import SpanKind
 from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed
+
+from app.tracing import extract, inject, tracer
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +38,8 @@ def envelope(topic: str, hunt_id: str, payload: dict[str, Any]) -> dict[str, Any
 def publisher(producer: AIOKafkaProducer):
     async def publish(topic: str, key: str, hunt_id: str, payload: dict[str, Any]) -> None:
         value = json.dumps(envelope(topic, hunt_id, payload)).encode()
-        await producer.send_and_wait(topic, value, key=key.encode())
+        with tracer.start_as_current_span(f"{topic} publish", kind=SpanKind.PRODUCER):
+            await producer.send_and_wait(topic, value, key=key.encode(), headers=inject())
 
     return publish
 
@@ -69,26 +73,28 @@ async def consume(graph: CompiledStateGraph, consumer: AIOKafkaConsumer, produce
     """
     publish = publisher(producer)
     async for msg in consumer:
-        event = None
-        try:
-            event = json.loads(msg.value)
-            async for attempt in AsyncRetrying(stop=stop_after_attempt(4), wait=wait_fixed(1), reraise=True):
-                with attempt:
-                    await handle(graph, msg.topic, event)
-        except Exception:  # bad JSON is not retried, like the Java consumers
-            log.exception("%s at offset %s failed, sending to %s", msg.topic, msg.offset, msg.topic + DLQ_SUFFIX)
-            await producer.send_and_wait(msg.topic + DLQ_SUFFIX, msg.value, key=msg.key)
-            if isinstance(event, dict) and "findingId" in event.get("payload", {}):
-                # Otherwise the hunt waits for this finding's diagnosis forever.
-                finding_id = event["payload"]["findingId"]
-                failed = {
-                    "findingId": finding_id,
-                    "status": "ERROR",
-                    "category": None,
-                    "confidence": None,
-                    "explanation": "The agent session failed; its event is in " + msg.topic + DLQ_SUFFIX,
-                    "patch": None,
-                    "steps": [],
-                }
-                await publish(DIAGNOSIS_COMPLETED, finding_id, event["huntId"], failed)
-        await consumer.commit()
+        # Continues the trace of whoever published the event.
+        with tracer.start_as_current_span(f"{msg.topic} process", context=extract(msg), kind=SpanKind.CONSUMER):
+            event = None
+            try:
+                event = json.loads(msg.value)
+                async for attempt in AsyncRetrying(stop=stop_after_attempt(4), wait=wait_fixed(1), reraise=True):
+                    with attempt:
+                        await handle(graph, msg.topic, event)
+            except Exception:  # bad JSON is not retried, like the Java consumers
+                log.exception("%s at offset %s failed, sending to %s", msg.topic, msg.offset, msg.topic + DLQ_SUFFIX)
+                await producer.send_and_wait(msg.topic + DLQ_SUFFIX, msg.value, key=msg.key, headers=list(msg.headers))
+                if isinstance(event, dict) and "findingId" in event.get("payload", {}):
+                    # Otherwise the hunt waits for this finding's diagnosis forever.
+                    finding_id = event["payload"]["findingId"]
+                    failed = {
+                        "findingId": finding_id,
+                        "status": "ERROR",
+                        "category": None,
+                        "confidence": None,
+                        "explanation": "The agent session failed; its event is in " + msg.topic + DLQ_SUFFIX,
+                        "patch": None,
+                        "steps": [],
+                    }
+                    await publish(DIAGNOSIS_COMPLETED, finding_id, event["huntId"], failed)
+            await consumer.commit()

@@ -1,5 +1,10 @@
 package dev.flakehunter.orchestrator.outbox;
 
+import io.opentelemetry.api.trace.propagation.W3CTraceContextPropagator;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +24,13 @@ class OutboxRelay {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
     private static final int BATCH = 100;
+    private static final TextMapGetter<String> TRACEPARENT = new TextMapGetter<>() {
+        @Override
+        public Iterable<String> keys(String traceparent) { return List.of("traceparent"); }
+
+        @Override
+        public String get(String traceparent, String key) { return "traceparent".equals(key) ? traceparent : null; }
+    };
 
     private final OutboxRepository events;
     private final KafkaTemplate<String, String> kafka;
@@ -32,7 +44,10 @@ class OutboxRelay {
     @Transactional
     void publishPending() {
         for (OutboxEvent event : events.lockUnpublished(BATCH)) {
-            try {
+            // The send joins the trace that added the event; KafkaTemplate's observation then puts it in the headers.
+            Context added = event.getTraceparent() == null ? Context.root()
+                    : W3CTraceContextPropagator.getInstance().extract(Context.root(), event.getTraceparent(), TRACEPARENT);
+            try (Scope ignored = added.makeCurrent()) {
                 // Wait for the broker's ack (acks=all) before marking the row, and keep order within the batch.
                 kafka.send(event.getTopic(), event.getKey(), event.getPayload()).get(10, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
