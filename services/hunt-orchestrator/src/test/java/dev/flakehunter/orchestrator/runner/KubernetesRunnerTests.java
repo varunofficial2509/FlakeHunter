@@ -116,7 +116,7 @@ class KubernetesRunnerTests {
     }
 
     private RunJob runJob(UUID runId, String strategy) {
-        return new RunJob(UUID.randomUUID(), runId, 17, strategy, null, null, null, DataSize.ofMegabytes(1536));
+        return new RunJob(UUID.randomUUID(), runId, 17, strategy, null, null, null, null, DataSize.ofMegabytes(1536));
     }
 
     private CompletableFuture<Integer> start(RunJob job) {

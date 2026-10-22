@@ -16,9 +16,12 @@ interface RunRepository extends JpaRepository<Run, UUID> {
     @Query("select r from Run r where r.id = :id")
     Optional<Run> lockById(UUID id);
 
-    List<Run> findByHuntIdAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
+    // The hunt's own runs; experiment runs belong to their experiment.
+    List<Run> findByHuntIdAndExperimentIdIsNullAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
 
     long countByStatus(Run.Status status);
 
-    long countByHuntIdAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
+    long countByHuntIdAndExperimentIdIsNullAndStatusIn(UUID huntId, Collection<Run.Status> statuses);
+
+    List<Run> findByExperimentId(UUID experimentId);
 }

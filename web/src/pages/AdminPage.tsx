@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { api, type RunnerSettings } from "../api";
+import { api, type AiSettings, type RunnerSettings } from "../api";
 
 const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
 
@@ -24,6 +24,19 @@ export function AdminPage() {
   const clearCache = useMutation({
     mutationFn: () =>
       api<void>("/api/admin/runner/maven-cache", { method: "DELETE" }),
+  });
+  const ai = useQuery({
+    queryKey: ["admin-ai"],
+    queryFn: () => api<AiSettings>("/api/admin/ai"),
+    refetchInterval: 5000, // watch the backlog drain
+  });
+  const switchAi = useMutation({
+    mutationFn: (enabled: boolean) =>
+      api<AiSettings>("/api/admin/ai", {
+        method: "PUT",
+        body: JSON.stringify({ enabled }),
+      }),
+    onSuccess: (data) => queryClient.setQueryData(["admin-ai"], data),
   });
   const [memory, setMemory] = useState<number>();
 
@@ -92,6 +105,30 @@ export function AdminPage() {
           Save
         </button>
       </form>
+
+      <h2>AI agents</h2>
+      {ai.data && !ai.data.available && (
+        <p>Agents run only in the Kubernetes deployment.</p>
+      )}
+      {ai.data?.available && (
+        <>
+          <p>
+            AI agents are <strong>{ai.data.enabled ? "on" : "off"}</strong>.{" "}
+            {ai.data.enabled
+              ? "Detection never needs them; switching off stops the agent pods."
+              : "AI analysis paused: findings wait in Kafka until you switch it on."}{" "}
+            {ai.data.pendingFindings} findings waiting for a diagnosis.
+          </p>
+          <button
+            onClick={() => switchAi.mutate(!ai.data.enabled)}
+            disabled={switchAi.isPending}
+          >
+            {ai.data.enabled ? "Switch AI off" : "Switch AI on"}
+          </button>
+        </>
+      )}
+      {ai.error && <p role="alert">{ai.error.message}</p>}
+      {switchAi.error && <p role="alert">{switchAi.error.message}</p>}
 
       <h2>Maven cache</h2>
       <p>

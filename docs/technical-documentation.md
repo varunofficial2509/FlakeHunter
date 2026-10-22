@@ -54,7 +54,7 @@ Java owns the core platform, Python owns only the AI agents, and everything runs
 | Core services     | Java 21, Spring Boot 3.x, Spring Cloud Gateway                          | Target-role stack; virtual threads for I/O-heavy services |
 | Stream processing | Plain Kafka consumers + SQL in result-aggregator (ADR 0005)             | Hunts are scored once at the end; Postgres holds the data |
 | Agent service     | Python 3.12, FastAPI, LangGraph                                         | Best agent tooling; a real reason for a polyglot boundary |
-| LLM               | Hosted APIs (Gemini / OpenAI), routed by task                           | Local models do not fit beside the cluster on 16 GB       |
+| LLM               | Hosted Gemini, routed by task (ADR 0006)                                | Local models do not fit beside the cluster on 16 GB       |
 | Frontend          | React 18, TypeScript, Vite, TanStack Query                              | Live dashboard over SSE                                   |
 | Messaging         | Apache Kafka (KRaft, no ZooKeeper)                                      | Durable async events, replay, consumer lag for scaling    |
 | Database          | PostgreSQL 16 (+ pgvector later, optional)                              | Relational state, outbox table                            |
@@ -570,8 +570,8 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 ### Phase 3 — Agents (8–28 Dec)
 
-- [ ] agent-service skeleton: FastAPI, Kafka consumer, Postgres checkpoints, budgets
-- [ ] Triage and investigator with `request_experiment` round trip through the orchestrator
+- [x] agent-service skeleton: FastAPI, Kafka consumer, Postgres checkpoints, budgets
+- [x] Triage and investigator with `request_experiment` round trip through the orchestrator
 - [ ] Classifier, fix writer, critic; verification runs
 - [ ] AI kill switch end to end, KEDA scale-to-zero for agent-service
 - [ ] Agent reasoning timeline and diff view in the UI
@@ -630,6 +630,6 @@ The project is judged by one honest benchmark number and one live demo, not by f
 - [x] Test frameworks: JUnit 4 and 5 (ADR 0004)
 - [ ] Kafka on K8s: Strimzi operator vs Bitnami chart
 - [ ] JSON Schema now vs Avro + Schema Registry later
-- [ ] LLM providers and default models per agent tier
+- [x] LLM providers and default models per agent tier (ADR 0006: Gemini)
 - [ ] Cloud target: AKS vs Azure VM + k3s (cost vs realism)
 - [ ] Gradle support in v1 or Maven only

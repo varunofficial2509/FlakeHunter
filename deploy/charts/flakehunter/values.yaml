@@ -41,6 +41,11 @@ services:
 web:
   memory: 32Mi
 
+# Python (templates/agent-service.yaml). Its Gemini key is the optional gemini-api-key in the secret (up.sh).
+agentService:
+  memory: 256Mi # ~105 MiB idle with the fake LLM
+  maxReplicas: 2 # KEDA scales it between 0 and this (templates/keda.yaml)
+
 # Runner Jobs live in their own namespace. Its quota is all the memory they get together: with the defaults
 # (1.5 GB per runner, set in the Admin panel) about 2 run at once next to the platform in Docker's 7.8 GB VM.
 runners:

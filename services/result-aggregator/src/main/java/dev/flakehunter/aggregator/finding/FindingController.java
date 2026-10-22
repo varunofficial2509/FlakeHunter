@@ -17,16 +17,17 @@ import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Read side for the UI: findings of a hunt, strongest first. */
+/** Read side for the UI: findings of a hunt, strongest first, each with the agents' diagnosis so far (or null). */
 @RestController
 @RequestMapping("/api/findings")
 class FindingController {
 
     record FindingResponse(UUID id, UUID huntId, String testId, BigDecimal score, BigDecimal failureRate,
-            String status, Instant createdAt, JsonNode evidence) {}
+            String status, Instant createdAt, JsonNode evidence, JsonNode diagnosis) {}
 
-    private static final String SELECT = "SELECT id, hunt_id, test_id, score, failure_rate, status, created_at,"
-            + " evidence::text AS evidence FROM results.findings ";
+    private static final String SELECT = "SELECT id, hunt_id, test_id, score, failure_rate, f.status, created_at,"
+            + " evidence::text AS evidence, d.snapshot::text AS diagnosis"
+            + " FROM results.findings f LEFT JOIN results.diagnoses d ON d.finding_id = f.id ";
 
     private final JdbcClient jdbc;
     private final JsonMapper json;
@@ -52,6 +53,7 @@ class FindingController {
         return new FindingResponse(rs.getObject("id", UUID.class), rs.getObject("hunt_id", UUID.class),
                 rs.getString("test_id"), rs.getBigDecimal("score"), rs.getBigDecimal("failure_rate"),
                 rs.getString("status"), rs.getTimestamp("created_at").toInstant(),
-                json.readTree(rs.getString("evidence")));
+                json.readTree(rs.getString("evidence")),
+                rs.getString("diagnosis") == null ? null : json.readTree(rs.getString("diagnosis")));
     }
 }

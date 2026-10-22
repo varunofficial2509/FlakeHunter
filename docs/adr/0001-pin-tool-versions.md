@@ -77,7 +77,6 @@ These are the rules for choosing a version:
 | LangGraph                     | 1.2.12          |
 | langgraph-checkpoint-postgres | 3.1.2           |
 | langchain-core                | 1.6.6           |
-| langchain-openai              | 1.6.7           |
 | langchain-google-genai        | 4.4.0           |
 | Pydantic                      | 2.13.5          |
 | pydantic-settings             | 2.15.0          |

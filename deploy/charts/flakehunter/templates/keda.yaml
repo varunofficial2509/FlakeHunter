@@ -23,3 +23,29 @@ spec:
         consumerGroup: result-aggregator
         topic: test.results
         lagThreshold: "{{ .Values.keda.lagThreshold }}"
+---
+{{- /*
+  agent-service scales on the agents' unread events, down to 0 when none wait: a session paused for an experiment
+  is checkpointed in Postgres, and its answer's lag brings a pod back. The AI kill switch pauses this object with
+  autoscaling.keda.sh/paused-replicas: "0", which holds it at 0 while findings queue up in Kafka.
+*/}}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: agent-service
+spec:
+  scaleTargetRef: { name: agent-service }
+  minReplicaCount: 0
+  maxReplicaCount: {{ .Values.agentService.maxReplicas }}
+  pollingInterval: 10
+  cooldownPeriod: 120 # after the last event, before scaling to 0
+  triggers:
+    {{- range list "finding.detected" "experiment.completed" "fix.verified" }}
+    - type: kafka
+      metadata:
+        bootstrapServers: {{ include "flakehunter.kafka" $ }}
+        consumerGroup: agents
+        topic: {{ . }}
+        lagThreshold: "1" # one session per pod at a time (consumer.py)
+        offsetResetPolicy: earliest # like the consumer: events sent before the group existed count as lag
+    {{- end }}

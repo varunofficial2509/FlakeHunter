@@ -7,6 +7,7 @@ import dev.flakehunter.events.Topics;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -20,7 +21,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Stores what the runners and the orchestrator report. Every write is idempotent on a natural key, so a
+ * Stores what the runners, the orchestrator and the agents report. Every write is idempotent on a natural key, so a
  * redelivered event changes nothing and no processed_events table is needed.
  */
 @Component
@@ -28,7 +29,7 @@ class EventIngest {
 
     private static final TypeReference<EventEnvelope<TestResult>> RESULT = new TypeReference<>() {};
     private static final TypeReference<EventEnvelope<RunCompleted>> RUN = new TypeReference<>() {};
-    private static final TypeReference<EventEnvelope<JsonNode>> STATUS = new TypeReference<>() {};
+    private static final TypeReference<EventEnvelope<JsonNode>> STATUS = new TypeReference<>() {}; // any payload
 
     private final JdbcClient jdbc;
     private final JdbcTemplate batch;
@@ -92,5 +93,22 @@ class EventIngest {
                     .params(event.huntId(), Timestamp.from(event.occurredAt())).update();
             default -> {} // other states don't change what gets analyzed
         }
+    }
+
+    // Topics differ, so updates and the end can arrive out of order: once ended, a row never changes, and an
+    // update never replaces a longer timeline.
+    @KafkaListener(topics = {Topics.DIAGNOSIS_UPDATED, Topics.DIAGNOSIS_COMPLETED})
+    void onDiagnosis(String message) {
+        JsonNode diagnosis = json.readValue(message, STATUS).payload();
+        String status = diagnosis.path("status").isString() ? diagnosis.path("status").asString() : null;
+        jdbc.sql("""
+                INSERT INTO results.diagnoses (finding_id, status, snapshot) VALUES (?, ?, ?::jsonb)
+                ON CONFLICT (finding_id) DO UPDATE
+                SET status = EXCLUDED.status, snapshot = EXCLUDED.snapshot, updated_at = now()
+                WHERE diagnoses.status IS NULL AND (EXCLUDED.status IS NOT NULL
+                    OR jsonb_array_length(EXCLUDED.snapshot->'steps') >= jsonb_array_length(diagnoses.snapshot->'steps'))
+                """)
+                .params(UUID.fromString(diagnosis.path("findingId").asString()), status,
+                        json.writeValueAsString(diagnosis)).update();
     }
 }

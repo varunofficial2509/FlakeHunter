@@ -29,7 +29,7 @@ Stop with `down`. `down -v` also **deletes all data**.
 
 ## Local Kubernetes (Phase 2)
 
-The whole platform (4 services, web app, Postgres, Kafka) on a one-node k3d cluster inside Docker. Needs k3d, Helm and kubectl. Stop the Compose stack first: both together don't fit in Docker's memory.
+The whole platform (5 services, web app, Postgres, Kafka) on a one-node k3d cluster inside Docker. Needs k3d, Helm and kubectl. Stop the Compose stack first: both together don't fit in Docker's memory.
 
 ```
 FLAKEHUNTER_ADMIN_PASSWORD=pick-one deploy/k3d/up.sh   # the password is only needed the first time
@@ -40,6 +40,8 @@ Then open http://localhost:8090 and log in as `admin`. Rerun `deploy/k3d/up.sh` 
 Hunts run as Kubernetes Jobs in the `flakehunter-runners` namespace. Its quota (3 GB, `runners.memoryMb` in the chart) fits about 2 runners at once; a Job that doesn't fit waits for room. Runners can reach Kafka and the internet, nothing else. The first `up.sh` builds runner images for JDK 8, 11, 17 and 21; `RUNNER_JDKS="17" deploy/k3d/up.sh` builds only the ones you need.
 
 Metrics: Grafana at http://localhost:8090/grafana opens on the **FlakeHunter platform** dashboard (consumer lag, replicas, hunts by status, runs in flight, 5xx, JVM heap); log in as `admin` to edit. Prometheus scrapes every service's `/actuator/prometheus` and keeps 1 day. KEDA scales `result-aggregator` from 1 to 2 replicas when its lag on `test.results` passes 5,000 per replica (`keda.maxReplicas` and `keda.lagThreshold` in the chart; up to 6, the topic's partition count). To watch it happen, run `deploy/k3d/flood-test-results.sh`.
+
+Agents (Phase 3): `agent-service` (Python) reads `finding.detected` and runs one LangGraph session per finding, checkpointed in Postgres (`agents` schema). Give it a Gemini key with `GEMINI_API_KEY=... deploy/k3d/up.sh`; without one it uses a fake LLM, so the pipeline runs but nothing is really diagnosed. Token caps per finding, hunt and day are `FLAKEHUNTER_TOKENS_PER_*` (ADR 0006). Tests: `cd services/agent-service && uv run pytest`.
 
 | Task               | Command                                                                          |
 | ------------------ | -------------------------------------------------------------------------------- |
