@@ -44,6 +44,9 @@ class Published(list):
     async def __call__(self, topic, key, hunt_id, payload):
         self.append((topic, key, hunt_id, payload))
 
+    def of(self, topic) -> list[dict]:
+        return [p[3] for p in self if p[0] == topic]
+
 
 def envelope() -> dict:
     finding = {"findingId": str(uuid4()), "testId": TEST, "failures": 11, "runs": 12}
@@ -137,9 +140,11 @@ async def test_requests_an_experiment_then_fixes_and_verifies(pool):
     topic, key, hunt_id, request = published[0]
     assert (topic, key, hunt_id) == ("experiment.requested", env["payload"]["findingId"], env["huntId"])
     assert request["experimentId"] == experiment_id and request["plan"]["timezone"] == "Asia/Kolkata"
+    update = published.of("diagnosis.updated")[0]  # the timeline so far, for the UI
+    assert update["status"] is None and [s["agent"] for s in update["steps"]] == ["triage", "investigator"]
 
     await handle(graph, FINDING_DETECTED, env)  # redelivered while waiting: republishes the same request
-    assert [p[3]["experimentId"] for p in published] == [experiment_id, experiment_id]
+    assert [r["experimentId"] for r in published.of("experiment.requested")] == [experiment_id, experiment_id]
     await handle(graph, EXPERIMENT_COMPLETED, completed(env, str(uuid4()), 3))  # not the one it waits for
     assert (await graph.aget_state(thread(env["payload"]["findingId"]))).next == ("experiment",)
 
@@ -147,8 +152,8 @@ async def test_requests_an_experiment_then_fixes_and_verifies(pool):
     await handle(graph, EXPERIMENT_COMPLETED, completed(env, experiment_id, 7))  # duplicate answer
 
     verification = await waiting_for(graph, env, "verify")
-    topic, _, _, request = published[-1]
-    assert topic == "verification.requested" and request["experimentId"] == verification["experimentId"]
+    request = published.of("verification.requested")[-1]
+    assert request["experimentId"] == verification["experimentId"]
     # The condition that made it fail, 100 times, with the fix applied.
     assert request["plan"] == {"tests": [TEST], "strategy": "TIMEZONE", "timezone": "Asia/Kolkata", "repeat": 100}
     assert '+    TimeZone zone = TimeZone.getTimeZone("Asia/Kolkata");' in request["patch"]
@@ -161,6 +166,7 @@ async def test_requests_an_experiment_then_fixes_and_verifies(pool):
     assert topic == "diagnosis.completed"
     assert diagnosis["status"] == "FIX_VERIFIED" and diagnosis["category"] == "TIME_DEPENDENT"
     assert diagnosis["patch"] == request["patch"]
+    assert diagnosis["steps"] == state.values["steps"]
     assert state.values["classification"]["category"] == "TIME_DEPENDENT"
     assert state.values["sources"] == {SOURCE: CODE}
     assert "sources" not in state.values["experiments"][0]["result"]  # kept once, not per experiment

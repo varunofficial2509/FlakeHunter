@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
 import { auth } from "./api";
 import { AdminPage } from "./pages/AdminPage";
+import { FindingPage } from "./pages/FindingPage";
 import { HuntPage } from "./pages/HuntPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectPage } from "./pages/ProjectPage";
@@ -63,6 +64,14 @@ createRoot(document.getElementById("root")!).render(
             element={
               <Layout>
                 <AdminPage />
+              </Layout>
+            }
+          />
+          <Route
+            path="/findings/:id"
+            element={
+              <Layout>
+                <FindingPage />
               </Layout>
             }
           />

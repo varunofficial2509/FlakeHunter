@@ -20,6 +20,8 @@ export function HuntPage() {
     queryKey: ["findings", id],
     queryFn: () => api<Finding[]>(`/api/findings?huntId=${id}`),
     enabled: done,
+    // While agents work, their status per finding changes.
+    refetchInterval: hunt.data?.status === "COMPLETED" ? false : 3000,
   });
 
   if (hunt.error) return <p role="alert">{hunt.error.message}</p>;
@@ -57,13 +59,16 @@ export function HuntPage() {
                   <th>Score</th>
                   <th>Failed</th>
                   <th>Triggered by</th>
+                  <th>Diagnosis</th>
                 </tr>
               </thead>
               <tbody>
                 {findings.data.map((f) => (
                   <tr key={f.id}>
                     <td>
-                      <code>{f.testId}</code>
+                      <Link to={`/findings/${f.id}`}>
+                        <code>{f.testId}</code>
+                      </Link>
                     </td>
                     <td>{Number(f.score).toFixed(2)}</td>
                     <td>
@@ -72,6 +77,10 @@ export function HuntPage() {
                     <td>
                       {f.evidence.triggeringStrategies.join(", ") ||
                         "fails without any change"}
+                    </td>
+                    <td>
+                      {f.diagnosis?.status ??
+                        (f.diagnosis ? "diagnosing…" : "waiting")}
                     </td>
                   </tr>
                 ))}

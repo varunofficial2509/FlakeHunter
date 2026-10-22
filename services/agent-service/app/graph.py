@@ -1,7 +1,8 @@
 """The agent graph for one finding (tech doc section 8). One thread per finding, checkpointed in Postgres.
 
 triage → investigate ⇄ experiment → classify → fix ⇄ critic → verify → report (or back to fix once). Every
-path ends in report, which publishes diagnosis.completed so the orchestrator knows the finding is done.
+path ends in report, which publishes diagnosis.completed so the orchestrator knows the finding is done. Each pause
+also publishes diagnosis.updated, so the UI's timeline follows a session that waits minutes for its runs.
 The experiment and verify nodes publish a request and pause the graph (interrupt); the checkpoint keeps it there
 until experiment.completed or fix.verified resumes it, on any pod.
 """
@@ -27,6 +28,7 @@ from app.patch import apply_edits, banned
 EXPERIMENT_REQUESTED = "experiment.requested"
 VERIFICATION_REQUESTED = "verification.requested"
 DIAGNOSIS_COMPLETED = "diagnosis.completed"
+DIAGNOSIS_UPDATED = "diagnosis.updated"
 # Same limits as the orchestrator's Experiments class, which enforces them again.
 MAX_EXPERIMENTS = 4
 MAX_DECISIONS = 5  # investigator calls per finding (tech doc section 8: max 5 iterations)
@@ -219,16 +221,17 @@ def trigger(state: State) -> dict[str, Any]:
     return {**worst["plan"], "repeat": VERIFY_RUNS}
 
 
-def diagnosis_completed(state: State) -> dict[str, Any]:
-    """The diagnosis.completed payload of a finished session."""
+def snapshot(state: State) -> dict[str, Any]:
+    """The diagnosis.updated and diagnosis.completed payload: the session so far; status is None until it ends."""
     conclusion, found = state.get("conclusion") or {}, state.get("classification") or {}
     return {
         "findingId": state["finding"]["findingId"],
-        "status": state["status"],
+        "status": state.get("status"),
         "category": found.get("category") or (conclusion["category"] if conclusion.get("confirmed") else None),
         "confidence": found.get("confidence"),
         "explanation": conclusion.get("explanation"),
-        "patch": state["fix"]["diff"] if state["status"] == "FIX_VERIFIED" else None,
+        "patch": state["fix"]["diff"] if state.get("status") == "FIX_VERIFIED" else None,
+        "steps": state.get("steps", []),
     }
 
 
@@ -324,6 +327,7 @@ def build_graph(
             state["hunt_id"],
             {"findingId": state["finding"]["findingId"], **pending},
         )
+        await publish(DIAGNOSIS_UPDATED, state["finding"]["findingId"], state["hunt_id"], snapshot(state))
         result = interrupt(pending["experimentId"])  # the graph stops here until experiment.completed arrives
         sources = result.pop("sources", None) or {}  # kept once in state, not in every experiment
         done = {**pending, "result": result}
@@ -410,6 +414,7 @@ def build_graph(
     async def verify(state: State) -> State:
         finding_id, pending = state["finding"]["findingId"], state["pending"]
         await publish(VERIFICATION_REQUESTED, finding_id, state["hunt_id"], {"findingId": finding_id, **pending})
+        await publish(DIAGNOSIS_UPDATED, finding_id, state["hunt_id"], snapshot(state))
         result = interrupt(pending["experimentId"])  # until fix.verified arrives
         result.pop("sources", None)
         failed = verdict(result)
@@ -433,7 +438,7 @@ def build_graph(
 
     async def report(state: State) -> None:
         # Reruns after a crash republish it; the orchestrator keeps one row per finding.
-        await publish(DIAGNOSIS_COMPLETED, state["finding"]["findingId"], state["hunt_id"], diagnosis_completed(state))
+        await publish(DIAGNOSIS_COMPLETED, state["finding"]["findingId"], state["hunt_id"], snapshot(state))
 
     graph = StateGraph(State)
     graph.add_node("triage", triage)
