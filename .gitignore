@@ -44,3 +44,6 @@ benchmark/.work/
 __pycache__/
 *.pyc
 *.tsbuildinfo
+
+# Maven output of the benchmark control project
+benchmark/control/target/
