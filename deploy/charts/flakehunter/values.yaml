@@ -81,3 +81,9 @@ prometheus:
 grafana:
   image: "" # GRAFANA_IMAGE from deploy/images.env, set by up.sh
   memory: 384Mi # 256Mi was OOMKilled during its first-start database migrations
+
+# Traces from every service over OTLP (tech doc section 12). Grafana's Explore → Tempo shows them.
+tempo:
+  image: "" # TEMPO_IMAGE from deploy/images.env, set by up.sh
+  memory: 256Mi # ~20 MiB idle
+  retention: 24h

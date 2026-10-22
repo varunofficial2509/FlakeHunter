@@ -1,0 +1,279 @@
+{
+  "uid": "flakehunter-hunts",
+  "title": "FlakeHunter hunts",
+  "tags": ["flakehunter"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "schemaVersion": 41,
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Hunts",
+      "description": "Hunts started in the time range.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(*) AS hunts FROM hunt.hunts WHERE $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Flaky tests found",
+      "description": "Findings the aggregator reported in the time range.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(*) AS findings FROM results.findings WHERE $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Median hunt duration",
+      "description": "Created to last status change, finished hunts only.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM updated_at - created_at)) AS seconds\nFROM hunt.hunts WHERE status IN ('COMPLETED', 'FAILED') AND $__timeFilter(created_at)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "piechart",
+      "title": "Hunts by status",
+      "description": "Where hunts ended up, or are now.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT status, count(*) AS hunts FROM hunt.hunts WHERE $__timeFilter(created_at) GROUP BY status"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [],
+          "fields": ""
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "right"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Hunt runs by strategy",
+      "description": "Runs that finished with a failing test, passed, or crashed (no results: build error, timeout, OOM). Agents' experiments are left out.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT strategy,\n       count(*) FILTER (WHERE status = 'SUCCEEDED' AND jsonb_array_length(coalesce(failed_tests, '[]')) > 0) AS \"a test failed\",\n       count(*) FILTER (WHERE status = 'SUCCEEDED' AND jsonb_array_length(coalesce(failed_tests, '[]')) = 0) AS passed,\n       count(*) FILTER (WHERE status IN ('FAILED', 'TIMED_OUT')) AS crashed\nFROM hunt.runs WHERE experiment_id IS NULL AND $__timeFilter(started_at) GROUP BY strategy ORDER BY strategy"
+        }
+      ],
+      "options": {
+        "stacking": "normal",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "xTickLabelRotation": 0
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Recent hunts",
+      "description": "Newest first. Minutes run to the last status change, so they grow while a hunt runs.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT left(id::text, 8) AS hunt, left(commit_sha, 8) AS commit, status, findings,\n       (budget ->> 'maxRuns')::int AS \"max runs\",\n       round((extract(epoch FROM updated_at - created_at) / 60)::numeric, 1) AS minutes, created_at AS started\nFROM hunt.hunts WHERE $__timeFilter(created_at) ORDER BY created_at DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Findings",
+      "description": "Flaky tests with their score and the agents' outcome (empty while they work or wait).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT f.test_id AS test, f.score, f.failure_rate AS \"failure rate\", d.status AS diagnosis,\n       d.snapshot ->> 'category' AS category, f.created_at AS found\nFROM results.findings f LEFT JOIN results.diagnoses d ON d.finding_id = f.id\nWHERE $__timeFilter(f.created_at) ORDER BY f.created_at DESC LIMIT 50"
+        }
+      ]
+    }
+  ]
+}

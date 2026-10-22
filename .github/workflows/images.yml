@@ -1,0 +1,168 @@
+# Pushes every image for amd64 and arm64 to GitHub Container Registry when main changes, so a cloud cluster
+# (Phase 4) or another laptop can pull them instead of building. Tags: sha-<commit> and latest; runner images
+# jdkN-sha-<commit> and jdkN, matching deploy/images.env's base images.
+name: Images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write # push to ghcr.io/<owner>/flakehunter/*
+
+jobs:
+  image:
+    name: ${{ matrix.image }} ${{ matrix.latest }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # args: names are filled from deploy/images.env, NAME=value pairs are passed as they are.
+          - {
+              image: project-service,
+              latest: latest,
+              prefix: "",
+              context: .,
+              file: deploy/docker/service.Dockerfile,
+              gradle: ":services:project-service:bootJar",
+              args: "JRE_IMAGE SERVICE=project-service",
+            }
+          - {
+              image: hunt-orchestrator,
+              latest: latest,
+              prefix: "",
+              context: .,
+              file: deploy/docker/service.Dockerfile,
+              gradle: ":services:hunt-orchestrator:bootJar",
+              args: "JRE_IMAGE SERVICE=hunt-orchestrator",
+            }
+          - {
+              image: result-aggregator,
+              latest: latest,
+              prefix: "",
+              context: .,
+              file: deploy/docker/service.Dockerfile,
+              gradle: ":services:result-aggregator:bootJar",
+              args: "JRE_IMAGE SERVICE=result-aggregator",
+            }
+          - {
+              image: api-gateway,
+              latest: latest,
+              prefix: "",
+              context: .,
+              file: deploy/docker/service.Dockerfile,
+              gradle: ":services:api-gateway:bootJar",
+              args: "JRE_IMAGE SERVICE=api-gateway",
+            }
+          - {
+              image: agent-service,
+              latest: latest,
+              prefix: "",
+              context: services/agent-service,
+              file: services/agent-service/Dockerfile,
+              gradle: "",
+              args: "PYTHON_IMAGE UV_IMAGE",
+            }
+          - {
+              image: web,
+              latest: latest,
+              prefix: "",
+              context: web,
+              file: web/Dockerfile,
+              gradle: "",
+              args: "NODE_IMAGE NGINX_IMAGE",
+            }
+          - {
+              image: runner,
+              latest: jdk8,
+              prefix: jdk8-,
+              context: runner,
+              file: runner/images/Dockerfile,
+              gradle: ":runner:publisher:installDist",
+              args: "MAVEN_IMAGE=MAVEN_JDK8_IMAGE PUBLISHER_JRE_IMAGE=JRE_IMAGE",
+            }
+          - {
+              image: runner,
+              latest: jdk11,
+              prefix: jdk11-,
+              context: runner,
+              file: runner/images/Dockerfile,
+              gradle: ":runner:publisher:installDist",
+              args: "MAVEN_IMAGE=MAVEN_JDK11_IMAGE PUBLISHER_JRE_IMAGE=JRE_IMAGE",
+            }
+          - {
+              image: runner,
+              latest: jdk17,
+              prefix: jdk17-,
+              context: runner,
+              file: runner/images/Dockerfile,
+              gradle: ":runner:publisher:installDist",
+              args: "MAVEN_IMAGE=MAVEN_JDK17_IMAGE PUBLISHER_JRE_IMAGE=JRE_IMAGE",
+            }
+          - {
+              image: runner,
+              latest: jdk21,
+              prefix: jdk21-,
+              context: runner,
+              file: runner/images/Dockerfile,
+              gradle: ":runner:publisher:installDist",
+              args: "MAVEN_IMAGE=MAVEN_JDK21_IMAGE PUBLISHER_JRE_IMAGE=JRE_IMAGE",
+            }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Java build (jars are the same on every CPU, so they are built once, natively)
+        if: matrix.gradle != ''
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - if: matrix.gradle != ''
+        uses: gradle/actions/setup-gradle@v5
+      - if: matrix.gradle != ''
+        run: ./gradlew ${{ matrix.gradle }}
+
+      - name: Build args and tags
+        id: meta
+        env:
+          ARGS: ${{ matrix.args }}
+          IMAGE: ${{ matrix.image }}
+          PREFIX: ${{ matrix.prefix }}
+          LATEST: ${{ matrix.latest }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -a; source deploy/images.env; set +a
+          {
+            echo "args<<EOF"
+            for arg in $ARGS; do
+              case "$arg" in
+                *=*_IMAGE) name=${arg%%=*}; var=${arg#*=}; echo "$name=${!var:?$var missing in images.env}" ;;
+                *=*) echo "$arg" ;;
+                *) echo "$arg=${!arg:?$arg missing in images.env}" ;;
+              esac
+            done
+            echo "EOF"
+            repo="ghcr.io/${OWNER,,}/flakehunter/$IMAGE" # registry paths must be lowercase
+            echo "tags=$repo:${PREFIX}sha-${GITHUB_SHA::7},$repo:$LATEST"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3 # arm64 RUN steps (uv sync, useradd) run emulated on the amd64 runner
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          build-args: ${{ steps.meta.outputs.args }}
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.latest }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.latest }}

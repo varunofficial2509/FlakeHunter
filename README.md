@@ -1,5 +1,7 @@
 # FlakeHunter
 
+[![CI](https://github.com/varunofficial2509/FlakeHunter/actions/workflows/ci.yml/badge.svg)](https://github.com/varunofficial2509/FlakeHunter/actions/workflows/ci.yml)
+
 ## Local infrastructure
 
 Postgres and Kafka run in Docker Compose. Only Docker is needed. Run from the repo root:
@@ -39,7 +41,7 @@ Then open http://localhost:8090 and log in as `admin`. Rerun `deploy/k3d/up.sh` 
 
 Hunts run as Kubernetes Jobs in the `flakehunter-runners` namespace. Its quota (3 GB, `runners.memoryMb` in the chart) fits about 2 runners at once; a Job that doesn't fit waits for room. Runners can reach Kafka and the internet, nothing else. The first `up.sh` builds runner images for JDK 8, 11, 17 and 21; `RUNNER_JDKS="17" deploy/k3d/up.sh` builds only the ones you need.
 
-Metrics: Grafana at http://localhost:8090/grafana opens on the **FlakeHunter platform** dashboard (consumer lag, replicas, hunts by status, runs in flight, 5xx, JVM heap); log in as `admin` to edit. Prometheus scrapes every service's `/actuator/prometheus` and keeps 1 day. KEDA scales `result-aggregator` from 1 to 2 replicas when its lag on `test.results` passes 5,000 per replica (`keda.maxReplicas` and `keda.lagThreshold` in the chart; up to 6, the topic's partition count). To watch it happen, run `deploy/k3d/flood-test-results.sh`.
+Metrics: Grafana at http://localhost:8090/grafana opens on the **FlakeHunter platform** dashboard (consumer lag, replicas, hunts by status, runs in flight, 5xx, JVM heap); log in as `admin` to edit. Prometheus scrapes every service's `/actuator/prometheus` and keeps 1 day. Two more dashboards read Postgres through a read-only role: **FlakeHunter hunts** (run outcomes per strategy, recent hunts, findings) and **FlakeHunter AI** (LLM calls, tokens per agent and model, latency, session outcomes). Traces from every service, the Python agents included, go to Tempo (kept 24 h): open Explore → Tempo in Grafana and search by service, or with TraceQL such as `{ name = "finding.detected process" }`. KEDA scales `result-aggregator` from 1 to 2 replicas when its lag on `test.results` passes 5,000 per replica (`keda.maxReplicas` and `keda.lagThreshold` in the chart; up to 6, the topic's partition count). To watch it happen, run `deploy/k3d/flood-test-results.sh`.
 
 Agents (Phase 3): `agent-service` (Python) reads `finding.detected` and runs one LangGraph session per finding, checkpointed in Postgres (`agents` schema). Give it a Gemini key with `GEMINI_API_KEY=... deploy/k3d/up.sh`; without one it uses a fake LLM, so the pipeline runs but nothing is really diagnosed. Token caps per finding, hunt and day are `FLAKEHUNTER_TOKENS_PER_*` (ADR 0006). Tests: `cd services/agent-service && uv run pytest`.
 
@@ -52,3 +54,23 @@ Agents (Phase 3): `agent-service` (Python) reads `finding.detected` and runs one
 | Autoscaling state  | `kubectl --context k3d-flakehunter -n flakehunter get scaledobject,hpa`          |
 | Pause (keeps data) | `k3d cluster stop flakehunter`, later `k3d cluster start flakehunter`            |
 | Delete everything  | `k3d cluster delete flakehunter` (also deletes the data and the registry)        |
+
+## Benchmark
+
+`benchmark/run.py` hunts every target in `benchmark/expected.json` through the API and scores the findings: flaky tests found, false positives, whether the agents named the right root cause, fixes proposed and verified, tokens per finding, and detection time. Results land in `benchmark/results/` and the table in [`benchmark/results.md`](benchmark/results.md), misses included.
+
+- **control** (`benchmark/control`): one seeded flaky test per root cause (order dependency, shared state, time zone, concurrency, async wait, randomness, unordered collection, resource leak) plus stable tests that must never be reported. The tests carry no hints, since the agents read them; `expected.json` says why each one flakes.
+- **fastjson**: two real flaky tests from IDoFT, reproduced in Phase 0 (`benchmark/targets.md`).
+
+```bash
+FLAKEHUNTER_ADMIN_PASSWORD=... python3 benchmark/run.py            # all targets, 40 runs, 2 at a time
+python3 benchmark/run.py --report                                  # rebuild results.md from saved runs
+```
+
+The control target hunts this repository at the newest pushed commit that changed `benchmark/control`, so push before running it. With AI off the script scores detection only.
+
+## CI and images
+
+Every pull request and every push to `develop` or `main` runs `.github/workflows/ci.yml`: the Gradle build with all Java tests (Testcontainers on the runner's Docker), agent-service lint and tests, the web typecheck, build and tests, `helm lint`, and the pre-commit hooks (formatting, secret scan).
+
+Each push to `main` runs `.github/workflows/images.yml`, which pushes every image for `linux/amd64` and `linux/arm64` to `ghcr.io/varunofficial2509/flakehunter/<name>` with tags `sha-<commit>` and `latest` (runner images: `jdkN-sha-<commit>` and `jdkN`). New GHCR packages start private; make them public under the repo's Packages if a cluster should pull without a login.

@@ -12,6 +12,11 @@ spring:
     default-schema: results
   kafka:
     bootstrap-servers: localhost:9092
+    # Kafka records carry the W3C traceparent header, so one trace follows an event across services.
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
     consumer:
       group-id: result-aggregator
       auto-offset-reset: earliest # a new group must not skip results sent before it started
@@ -32,3 +37,10 @@ management:
     web:
       exposure:
         include: health,prometheus # Prometheus scrapes this inside the cluster; the ingress only routes /api
+  tracing:
+    sampling:
+      probability: 1.0 # one user and few requests: keep every trace
+    # Spans go to Tempo only where MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT is set (the Helm chart).
+  observations:
+    enable:
+      tasks.scheduled: false # a trace for every 1 s outbox poll would bury the real ones
