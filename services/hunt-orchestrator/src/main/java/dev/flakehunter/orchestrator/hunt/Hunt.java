@@ -48,6 +48,7 @@ public class Hunt {
     private String mavenArgs;
 
     private String failureReason;
+    private Integer findings; // set when the analysis completes
 
     @Column(updatable = false)
     private Instant createdAt;
@@ -89,6 +90,10 @@ public class Hunt {
         failureReason = reason;
     }
 
+    void analyzed(int count) {
+        findings = count;
+    }
+
     void useImage(String image) {
         runnerImage = image;
     }
@@ -104,6 +109,7 @@ public class Hunt {
     public Integer getJdkVersion() { return jdkVersion; }
     public String getMavenArgs() { return mavenArgs; }
     public String getFailureReason() { return failureReason; }
+    public Integer getFindings() { return findings; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }

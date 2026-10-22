@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api, type Finding, type Hunt } from "../api";
 
-const FINISHED = ["COMPLETED", "FAILED"];
+const FINISHED = ["COMPLETED", "FAILED", "CANCELLED"];
+// Detection is over in these: the findings are final, agents may still be diagnosing them.
+const ANALYZED = ["COMPLETED", "DIAGNOSING", "AWAITING_AI"];
 
 export function HuntPage() {
   const { id } = useParams();
@@ -13,11 +15,13 @@ export function HuntPage() {
     refetchInterval: (query) =>
       FINISHED.includes(query.state.data?.status ?? "") ? false : 2000,
   });
-  const done = hunt.data?.status === "COMPLETED";
+  const done = ANALYZED.includes(hunt.data?.status ?? "");
   const findings = useQuery({
     queryKey: ["findings", id],
     queryFn: () => api<Finding[]>(`/api/findings?huntId=${id}`),
     enabled: done,
+    // While agents work, their status per finding changes.
+    refetchInterval: hunt.data?.status === "COMPLETED" ? false : 3000,
   });
 
   if (hunt.error) return <p role="alert">{hunt.error.message}</p>;
@@ -36,6 +40,12 @@ export function HuntPage() {
         {h.budget.maxRuns} runs, {h.budget.maxParallelPods} at a time
       </p>
       {h.failureReason && <p role="alert">{h.failureReason}</p>}
+      {h.status === "AWAITING_AI" && (
+        <p role="status">
+          AI analysis paused: the findings wait until AI agents are switched on
+          in <Link to="/admin">Admin</Link>.
+        </p>
+      )}
 
       {done && (
         <>
@@ -49,13 +59,16 @@ export function HuntPage() {
                   <th>Score</th>
                   <th>Failed</th>
                   <th>Triggered by</th>
+                  <th>Diagnosis</th>
                 </tr>
               </thead>
               <tbody>
                 {findings.data.map((f) => (
                   <tr key={f.id}>
                     <td>
-                      <code>{f.testId}</code>
+                      <Link to={`/findings/${f.id}`}>
+                        <code>{f.testId}</code>
+                      </Link>
                     </td>
                     <td>{Number(f.score).toFixed(2)}</td>
                     <td>
@@ -64,6 +77,10 @@ export function HuntPage() {
                     <td>
                       {f.evidence.triggeringStrategies.join(", ") ||
                         "fails without any change"}
+                    </td>
+                    <td>
+                      {f.diagnosis?.status ??
+                        (f.diagnosis ? "diagnosing…" : "waiting")}
                     </td>
                   </tr>
                 ))}

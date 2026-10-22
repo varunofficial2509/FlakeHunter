@@ -46,6 +46,7 @@ class PublisherTests {
         // Exit code 1 because a test failed: the run itself still succeeded.
         assertThat(completed.status()).isEqualTo(RunCompleted.Status.SUCCEEDED);
         assertThat(completed.failed()).isEqualTo(1);
+        assertThat(completed.failedTests()).containsExactly("a.ATest#flaky");
         assertThat(completed.passed()).isEqualTo(1);
     }
 

@@ -82,6 +82,13 @@ export type HuntOptions = {
   defaults: Budget;
 };
 
+/** The AI kill switch; available is false under Compose, which runs no agents. */
+export type AiSettings = {
+  enabled: boolean;
+  available: boolean;
+  pendingFindings: number;
+};
+
 export type RunnerSettings = {
   memoryMb: number;
   totalMemoryMb: number;
@@ -94,8 +101,34 @@ export type RunnerSettings = {
 
 export type Finding = {
   id: string;
+  huntId: string;
   testId: string;
   score: number;
   failureRate: number;
   evidence: { runs: number; failures: number; triggeringStrategies: string[] };
+  diagnosis: Diagnosis | null; // null until an agent session reports
+};
+
+/** The agents' session for one finding; status is null while it runs. */
+export type Diagnosis = {
+  status: string | null;
+  category: string | null;
+  confidence: number | null;
+  explanation: string | null;
+  patch: string | null; // the verified fix, a unified diff
+  steps: Step[];
+};
+
+/** One entry of the reasoning timeline; the details depend on the agent. */
+export type Step = {
+  agent: string;
+  at: string;
+  summary: string;
+  diff?: string;
+  plan?: {
+    tests: string[];
+    strategy: string;
+    timezone: string | null;
+    repeat: number;
+  };
 };

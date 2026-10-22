@@ -1,6 +1,7 @@
 package dev.flakehunter.orchestrator.hunt;
 
 import dev.flakehunter.events.Topics;
+import dev.flakehunter.orchestrator.ai.AiSwitch;
 import dev.flakehunter.orchestrator.outbox.Outbox;
 import dev.flakehunter.orchestrator.project.ProjectClient;
 import java.util.EnumSet;
@@ -13,6 +14,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -36,15 +39,22 @@ class HuntService {
     private final ProjectClient projects;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate tx;
+    private final Experiments experiments;
+    private final AiSwitch ai;
+    private final JdbcClient jdbc;
 
     HuntService(HuntRepository hunts, RunRepository runs, Outbox outbox, ProjectClient projects,
-            ApplicationEventPublisher events, TransactionTemplate tx) {
+            ApplicationEventPublisher events, TransactionTemplate tx, Experiments experiments, AiSwitch ai,
+            JdbcClient jdbc) {
         this.hunts = hunts;
         this.runs = runs;
         this.outbox = outbox;
         this.projects = projects;
         this.events = events;
         this.tx = tx;
+        this.experiments = experiments;
+        this.ai = ai;
+        this.jdbc = jdbc;
     }
 
     /**
@@ -98,8 +108,12 @@ class HuntService {
         return hunts.findByStatusIn(EnumSet.of(HuntStatus.CREATED, HuntStatus.PREPARING, HuntStatus.RUNNING));
     }
 
+    Hunt find(UUID huntId) {
+        return hunts.findById(huntId).orElseThrow(() -> new IllegalStateException("No hunt " + huntId));
+    }
+
     List<Run> unfinishedRuns(UUID huntId) {
-        return runs.findByHuntIdAndStatusIn(huntId, UNFINISHED);
+        return runs.findByHuntIdAndExperimentIdIsNullAndStatusIn(huntId, UNFINISHED);
     }
 
     @Transactional
@@ -107,9 +121,12 @@ class HuntService {
         runs.lockById(runId).filter(r -> r.getStatus() == Run.Status.SCHEDULED).ifPresent(Run::start);
     }
 
-    /** Records a run's outcome; when it was the hunt's last run, moves the hunt to ANALYZING. Idempotent. */
+    /**
+     * Records a run's outcome; when it was the hunt's last run, moves the hunt to ANALYZING, and when it was an
+     * experiment's last run, answers the experiment. Idempotent.
+     */
     @Transactional
-    void finishRun(UUID runId, Run.Status result) {
+    void finishRun(UUID runId, Run.Status result, List<String> failedTests) {
         Optional<Run> found = runs.lockById(runId);
         if (found.isEmpty()) {
             log.warn("Ignoring result for unknown run {}", runId); // e.g. a manual runner test
@@ -118,9 +135,11 @@ class HuntService {
         Run run = found.get();
         if (run.getStatus().isFinished()) return; // a duplicate, or the launcher already gave up on it
         Hunt hunt = lock(run.getHuntId());
-        run.finish(result);
-        if (hunt.getStatus() == HuntStatus.RUNNING
-                && runs.countByHuntIdAndStatusIn(hunt.getId(), UNFINISHED) == 0) {
+        run.finish(result, failedTests);
+        if (run.getExperimentId() != null) {
+            experiments.runFinished(run);
+        } else if (hunt.getStatus() == HuntStatus.RUNNING
+                && runs.countByHuntIdAndExperimentIdIsNullAndStatusIn(hunt.getId(), UNFINISHED) == 0) {
             hunt.moveTo(HuntStatus.ANALYZING);
             emit(hunt, HuntStatus.RUNNING, Map.of());
         }
@@ -131,8 +150,34 @@ class HuntService {
     void completeAnalysis(UUID huntId, int findings) {
         Hunt hunt = lock(huntId);
         if (hunt.getStatus() != HuntStatus.ANALYZING) return; // cancelled or failed meanwhile; keep that outcome
-        hunt.moveTo(HuntStatus.COMPLETED);
+        hunt.analyzed(findings);
+        // The findings wait in Kafka either way; with AI off nothing reads them until it is switched on.
+        hunt.moveTo(findings == 0 ? HuntStatus.COMPLETED
+                : ai.enabled() ? HuntStatus.DIAGNOSING : HuntStatus.AWAITING_AI);
         emit(hunt, HuntStatus.ANALYZING, Map.of("findings", findings));
+    }
+
+    /** Records one finding's finished agent session; the hunt completes with its last one. Idempotent. */
+    @Transactional
+    void diagnosed(UUID huntId, UUID findingId, String status) {
+        Hunt hunt = lock(huntId);
+        boolean first = jdbc.sql("INSERT INTO hunt.diagnoses (finding_id, hunt_id, status) VALUES (?, ?, ?)"
+                + " ON CONFLICT DO NOTHING").params(findingId, huntId, status).update() == 1;
+        int done = jdbc.sql("SELECT count(*) FROM hunt.diagnoses WHERE hunt_id = ?").param(huntId)
+                .query(Integer.class).single();
+        if (first && hunt.getStatus() == HuntStatus.DIAGNOSING && done >= hunt.getFindings()) {
+            hunt.moveTo(HuntStatus.COMPLETED);
+            emit(hunt, HuntStatus.DIAGNOSING, Map.of("diagnosed", done));
+        }
+    }
+
+    // Inside AiSwitch.set's transaction: hunts that waited for AI are diagnosed now, from the Kafka backlog.
+    @EventListener
+    void onAiSwitched(AiSwitch.Switched event) {
+        if (!event.enabled()) return; // running sessions pause with their pods; their hunts stay DIAGNOSING
+        for (Hunt waiting : hunts.findByStatusIn(EnumSet.of(HuntStatus.AWAITING_AI))) {
+            moveTo(waiting.getId(), HuntStatus.DIAGNOSING);
+        }
     }
 
     private Hunt lock(UUID huntId) {

@@ -39,3 +39,7 @@ bin/
 
 # Phase 0 script clones target repos here
 benchmark/.work/
+
+# Python bytecode
+__pycache__/
+*.pyc

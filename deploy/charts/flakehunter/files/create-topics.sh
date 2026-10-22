@@ -24,12 +24,16 @@ create analysis.completed     3 $EVENTS
 create finding.detected       6 $EVENTS
 create experiment.requested   3 $EVENTS
 create experiment.completed   3 $EVENTS
+create sources.exported       3 $EVENTS
 create diagnosis.completed    3 $EVENTS
+create diagnosis.updated      3 $EVENTS
 create fix.proposed           3 $EVENTS
 create verification.requested 3 $EVENTS
 create fix.verified           3 $EVENTS
 create ai.control             1 $EVENTS
 # Dead letters of the topics consumed so far (tech doc section 11).
-for t in hunt.status test.results run.completed analysis.completed; do
+for t in hunt.status test.results run.completed analysis.completed finding.detected \
+  experiment.requested experiment.completed sources.exported verification.requested fix.verified \
+  diagnosis.completed diagnosis.updated; do
   create "$t.dlq" 1 $EVENTS
 done

@@ -28,7 +28,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
-/** The saga from POST to COMPLETED, with Docker and project-service replaced by mocks and real Kafka. */
+/** The saga from POST to the end of the analysis, with Docker and project-service replaced by mocks and real Kafka. */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 class HuntExecutionTests {
@@ -89,7 +89,8 @@ class HuntExecutionTests {
                 new AnalysisCompleted(5, 21, 1)));
         kafka.send(Topics.ANALYSIS_COMPLETED, huntId.toString(), analysis).get();
         kafka.send(Topics.ANALYSIS_COMPLETED, huntId.toString(), analysis).get(); // duplicate is ignored
-        await().atMost(Duration.ofSeconds(15)).until(() -> status(huntId) == HuntStatus.COMPLETED);
+        // Tests run like Compose, without agents, so its finding waits for AI (AiSwitchTests has the rest).
+        await().atMost(Duration.ofSeconds(15)).until(() -> status(huntId) == HuntStatus.AWAITING_AI);
     }
 
     @Test
@@ -132,7 +133,7 @@ class HuntExecutionTests {
         active.start();
         Run waiting = new Run(running.getId(), Strategy.SHUFFLE_ORDER, 7L, null);
         Run done = new Run(running.getId(), Strategy.BASELINE, null, null);
-        done.finish(Run.Status.SUCCEEDED);
+        done.finish(Run.Status.SUCCEEDED, null);
         runs.saveAll(List.of(active, waiting, done));
         Hunt preparing = hunts.save(huntIn(HuntStatus.PREPARING));
 
@@ -176,6 +177,6 @@ class HuntExecutionTests {
 
     private String runCompleted(UUID huntId, UUID runId, RunCompleted.Status status) {
         return json.writeValueAsString(EventEnvelope.of(Topics.RUN_COMPLETED, huntId,
-                new RunCompleted(runId, "BASELINE", null, status, 0, 1000, 21, 21, 0, 0, 0)));
+                new RunCompleted(runId, "BASELINE", null, status, 0, 1000, 21, 21, 0, 0, 0, List.of())));
     }
 }

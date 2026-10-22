@@ -1,5 +1,6 @@
 package dev.flakehunter.events;
 
+import java.util.List;
 import java.util.UUID;
 
 /** Payload of {@code run.completed}: sent once per run, even when the build crashed (ADR 0002). Key: {@code huntId}. */
@@ -14,7 +15,10 @@ public record RunCompleted(
         int passed,
         int failed,
         int errors,
-        int skipped) {
+        int skipped,
+        List<String> failedTests) { // FAILED or ERROR test ids, at most MAX_FAILED_TESTS; experiments count these
+
+    public static final int MAX_FAILED_TESTS = 100;
 
     /**
      * SUCCEEDED: tests ran and results were published, even if some failed. FAILED: the build produced no
