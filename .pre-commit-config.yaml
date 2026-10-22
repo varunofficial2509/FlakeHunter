@@ -29,4 +29,5 @@ repos:
     rev: v3.9.10
     hooks:
       - id: prettier
-        exclude: ^deploy/charts/.*/templates/ # it rewrites {{ }} into { { } } and breaks the template
+        # Templates: it rewrites {{ }} into { { } }. Lockfiles: generated, pnpm rewrites them on every install.
+        exclude: ^deploy/charts/.*/templates/|pnpm-lock\.yaml$

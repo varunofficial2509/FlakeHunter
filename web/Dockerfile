@@ -2,7 +2,8 @@
 ARG NODE_IMAGE
 ARG NGINX_IMAGE
 
-FROM ${NODE_IMAGE} AS build
+# The build output is static files, so build once on the machine's own platform even for other targets.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 WORKDIR /web
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
