@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -32,12 +33,15 @@ class HuntController {
     private final HuntRepository hunts;
     private final Runner runners;
     private final RunnerSettings runner;
+    private final JdbcClient jdbc;
 
-    HuntController(HuntService huntService, HuntRepository hunts, Runner runners, RunnerSettings runner) {
+    HuntController(HuntService huntService, HuntRepository hunts, Runner runners, RunnerSettings runner,
+            JdbcClient jdbc) {
         this.huntService = huntService;
         this.hunts = hunts;
         this.runners = runners;
         this.runner = runner;
+        this.jdbc = jdbc;
     }
 
     @GetMapping("/options")
@@ -74,6 +78,22 @@ class HuntController {
     HuntResponse get(@PathVariable UUID id) {
         return hunts.findById(id).map(HuntResponse::from)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Hunt " + id + " not found"));
+    }
+
+    // One query counts every experiment's runs, so the UI can poll it every few seconds.
+    @GetMapping("/{id}/experiments")
+    List<ExperimentProgress> experiments(@PathVariable UUID id) {
+        return jdbc.sql("""
+                SELECT e.id, e.finding_id, e.patch IS NOT NULL AS verification, e.status,
+                       count(r.id) AS planned,
+                       count(r.id) FILTER (WHERE r.status NOT IN ('SCHEDULED', 'RUNNING')) AS finished,
+                       count(r.id) FILTER (WHERE r.status = 'SUCCEEDED'
+                                           AND jsonb_typeof(r.failed_tests) = 'array'
+                                           AND jsonb_array_length(r.failed_tests) > 0) AS failing,
+                       count(r.id) FILTER (WHERE r.status IN ('FAILED', 'TIMED_OUT')) AS crashed
+                FROM hunt.experiments e LEFT JOIN hunt.runs r ON r.experiment_id = e.id
+                WHERE e.hunt_id = ?
+                GROUP BY e.id ORDER BY e.created_at""").param(id).query(ExperimentProgress.class).list();
     }
 
     @ExceptionHandler(RestClientException.class)

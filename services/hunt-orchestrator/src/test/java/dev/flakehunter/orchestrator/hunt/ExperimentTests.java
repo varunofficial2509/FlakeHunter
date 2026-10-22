@@ -54,6 +54,9 @@ class ExperimentTests {
     @Autowired
     JdbcClient jdbc;
 
+    @Autowired
+    HuntController controller;
+
     @MockitoBean
     Runner runners;
 
@@ -99,6 +102,8 @@ class ExperimentTests {
                 .isEqualTo("class DateTest4_indian {}");
         assertThat(hunts.findById(hunt.getId()).orElseThrow().getStatus()).isEqualTo(HuntStatus.COMPLETED);
         verify(runners, timeout(5000)).removeVolume(experimentId);
+        assertThat(controller.experiments(hunt.getId())).containsExactly(
+                new ExperimentProgress(experimentId, findingId, false, "COMPLETED", 3, 3, 2, 0));
     }
 
     @Test
