@@ -1,6 +1,7 @@
 """The agent graph for one finding (tech doc section 8). One thread per finding, checkpointed in Postgres.
 
-triage → investigate ⇄ experiment → classify → fix ⇄ critic → verify → end (or back to fix once).
+triage → investigate ⇄ experiment → classify → fix ⇄ critic → verify → report (or back to fix once). Every
+path ends in report, which publishes diagnosis.completed so the orchestrator knows the finding is done.
 The experiment and verify nodes publish a request and pause the graph (interrupt); the checkpoint keeps it there
 until experiment.completed or fix.verified resumes it, on any pod.
 """
@@ -25,6 +26,7 @@ from app.patch import apply_edits, banned
 
 EXPERIMENT_REQUESTED = "experiment.requested"
 VERIFICATION_REQUESTED = "verification.requested"
+DIAGNOSIS_COMPLETED = "diagnosis.completed"
 # Same limits as the orchestrator's Experiments class, which enforces them again.
 MAX_EXPERIMENTS = 4
 MAX_DECISIONS = 5  # investigator calls per finding (tech doc section 8: max 5 iterations)
@@ -215,6 +217,19 @@ def trigger(state: State) -> dict[str, Any]:
     cited = [e for e in state["experiments"] if e["experimentId"] in state["conclusion"]["evidence"]]
     worst = max(cited, key=lambda e: sum(t["failures"] for t in e["result"].get("tests", [])))
     return {**worst["plan"], "repeat": VERIFY_RUNS}
+
+
+def diagnosis_completed(state: State) -> dict[str, Any]:
+    """The diagnosis.completed payload of a finished session."""
+    conclusion, found = state.get("conclusion") or {}, state.get("classification") or {}
+    return {
+        "findingId": state["finding"]["findingId"],
+        "status": state["status"],
+        "category": found.get("category") or (conclusion["category"] if conclusion.get("confirmed") else None),
+        "confidence": found.get("confidence"),
+        "explanation": conclusion.get("explanation"),
+        "patch": state["fix"]["diff"] if state["status"] == "FIX_VERIFIED" else None,
+    }
 
 
 def build_graph(
@@ -416,6 +431,10 @@ def build_graph(
             out["status"] = "FIX_FAILED"
         return out
 
+    async def report(state: State) -> None:
+        # Reruns after a crash republish it; the orchestrator keeps one row per finding.
+        await publish(DIAGNOSIS_COMPLETED, state["finding"]["findingId"], state["hunt_id"], diagnosis_completed(state))
+
     graph = StateGraph(State)
     graph.add_node("triage", triage)
     graph.add_node("investigate", investigate)
@@ -424,14 +443,18 @@ def build_graph(
     graph.add_node("fix", fix)
     graph.add_node("critic", critic)
     graph.add_node("verify", verify)
+    graph.add_node("report", report)
     graph.add_edge(START, "triage")
-    graph.add_conditional_edges("triage", lambda s: END if s.get("status") else "investigate")
+    graph.add_conditional_edges("triage", lambda s: "report" if s.get("status") else "investigate")
     graph.add_conditional_edges(
-        "investigate", lambda s: END if s.get("status") else "classify" if s.get("conclusion") else "experiment"
+        "investigate", lambda s: "report" if s.get("status") else "classify" if s.get("conclusion") else "experiment"
     )
     graph.add_edge("experiment", "investigate")
-    graph.add_conditional_edges("classify", lambda s: END if s.get("status") else "fix")
-    graph.add_conditional_edges("fix", lambda s: END if s.get("status") else "critic")
-    graph.add_conditional_edges("critic", lambda s: END if s.get("status") else "verify" if s.get("fix") else "fix")
-    graph.add_conditional_edges("verify", lambda s: END if s.get("status") else "fix")
+    graph.add_conditional_edges("classify", lambda s: "report" if s.get("status") else "fix")
+    graph.add_conditional_edges("fix", lambda s: "report" if s.get("status") else "critic")
+    graph.add_conditional_edges(
+        "critic", lambda s: "report" if s.get("status") else "verify" if s.get("fix") else "fix"
+    )
+    graph.add_conditional_edges("verify", lambda s: "report" if s.get("status") else "fix")
+    graph.add_edge("report", END)
     return graph.compile(checkpointer=checkpointer)

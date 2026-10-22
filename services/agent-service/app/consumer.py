@@ -15,6 +15,7 @@ FINDING_DETECTED = "finding.detected"
 EXPERIMENT_COMPLETED = "experiment.completed"
 FIX_VERIFIED = "fix.verified"
 RESUMES = {EXPERIMENT_COMPLETED: "experiment", FIX_VERIFIED: "verify"}  # answer topic → the node waiting for it
+DIAGNOSIS_COMPLETED = "diagnosis.completed"
 DLQ_SUFFIX = ".dlq"  # same as Topics.DLQ_SUFFIX in libs/events
 
 
@@ -66,7 +67,9 @@ async def consume(graph: CompiledStateGraph, consumer: AIOKafkaConsumer, produce
 
     shortcut: one message at a time per pod; KEDA adds pods when findings queue up.
     """
+    publish = publisher(producer)
     async for msg in consumer:
+        event = None
         try:
             event = json.loads(msg.value)
             async for attempt in AsyncRetrying(stop=stop_after_attempt(4), wait=wait_fixed(1), reraise=True):
@@ -75,4 +78,16 @@ async def consume(graph: CompiledStateGraph, consumer: AIOKafkaConsumer, produce
         except Exception:  # bad JSON is not retried, like the Java consumers
             log.exception("%s at offset %s failed, sending to %s", msg.topic, msg.offset, msg.topic + DLQ_SUFFIX)
             await producer.send_and_wait(msg.topic + DLQ_SUFFIX, msg.value, key=msg.key)
+            if isinstance(event, dict) and "findingId" in event.get("payload", {}):
+                # Otherwise the hunt waits for this finding's diagnosis forever.
+                finding_id = event["payload"]["findingId"]
+                failed = {
+                    "findingId": finding_id,
+                    "status": "ERROR",
+                    "category": None,
+                    "confidence": None,
+                    "explanation": "The agent session failed; its event is in " + msg.topic + DLQ_SUFFIX,
+                    "patch": None,
+                }
+                await publish(DIAGNOSIS_COMPLETED, finding_id, event["huntId"], failed)
         await consumer.commit()

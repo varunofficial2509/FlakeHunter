@@ -32,6 +32,7 @@ create fix.verified           3 $EVENTS
 create ai.control             1 $EVENTS
 # Dead letters of the topics consumed so far (tech doc section 11).
 for t in hunt.status test.results run.completed analysis.completed finding.detected \
-  experiment.requested experiment.completed sources.exported verification.requested fix.verified; do
+  experiment.requested experiment.completed sources.exported verification.requested fix.verified \
+  diagnosis.completed; do
   create "$t.dlq" 1 $EVENTS
 done

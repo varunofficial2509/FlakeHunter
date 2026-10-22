@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api, type Finding, type Hunt } from "../api";
 
-const FINISHED = ["COMPLETED", "FAILED"];
+const FINISHED = ["COMPLETED", "FAILED", "CANCELLED"];
+// Detection is over in these: the findings are final, agents may still be diagnosing them.
+const ANALYZED = ["COMPLETED", "DIAGNOSING", "AWAITING_AI"];
 
 export function HuntPage() {
   const { id } = useParams();
@@ -13,7 +15,7 @@ export function HuntPage() {
     refetchInterval: (query) =>
       FINISHED.includes(query.state.data?.status ?? "") ? false : 2000,
   });
-  const done = hunt.data?.status === "COMPLETED";
+  const done = ANALYZED.includes(hunt.data?.status ?? "");
   const findings = useQuery({
     queryKey: ["findings", id],
     queryFn: () => api<Finding[]>(`/api/findings?huntId=${id}`),
@@ -36,6 +38,12 @@ export function HuntPage() {
         {h.budget.maxRuns} runs, {h.budget.maxParallelPods} at a time
       </p>
       {h.failureReason && <p role="alert">{h.failureReason}</p>}
+      {h.status === "AWAITING_AI" && (
+        <p role="status">
+          AI analysis paused: the findings wait until AI agents are switched on
+          in <Link to="/admin">Admin</Link>.
+        </p>
+      )}
 
       {done && (
         <>
