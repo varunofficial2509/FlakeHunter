@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from psycopg_pool import AsyncConnectionPool
 
 from app.config import Settings
+from app.tracing import tracer
 
 
 class BudgetExceeded(Exception):
@@ -43,9 +44,19 @@ class Budget:
     ) -> AIMessage:
         """Checks the caps, calls the model and records its token usage."""
         await self.check(finding_id, hunt_id)
+        model = getattr(llm, "model", type(llm).__name__)
         started = time.monotonic()
-        reply = await llm.ainvoke(messages)
-        usage = reply.usage_metadata or {}  # fake models report none
+        with tracer.start_as_current_span(f"llm {agent}") as span:
+            reply = await llm.ainvoke(messages)
+            usage = reply.usage_metadata or {}  # fake models report none
+            span.set_attributes(
+                {
+                    "gen_ai.request.model": model,
+                    "gen_ai.usage.input_tokens": usage.get("input_tokens", 0),
+                    "gen_ai.usage.output_tokens": usage.get("output_tokens", 0),
+                    "flakehunter.finding_id": finding_id,
+                }
+            )
         async with self.pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO llm_calls (id, finding_id, hunt_id, agent, model, tokens_in, tokens_out, latency_ms)"
@@ -55,7 +66,7 @@ class Budget:
                     finding_id,
                     hunt_id,
                     agent,
-                    getattr(llm, "model", type(llm).__name__),
+                    model,
                     usage.get("input_tokens", 0),
                     usage.get("output_tokens", 0),
                     int((time.monotonic() - started) * 1000),

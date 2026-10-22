@@ -1,0 +1,76 @@
+{{- /* Tempo in single-binary mode: OTLP over HTTP in on 4318, queries from Grafana on 3200. */}}
+{{- define "flakehunter.tempo-config" }}
+server:
+  http_listen_port: 3200
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+storage:
+  trace:
+    backend: local
+    wal: { path: /var/tempo/wal }
+    local: { path: /var/tempo/blocks }
+backend_worker:
+  compaction:
+    block_retention: {{ .Values.tempo.retention }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo
+data:
+  tempo.yaml: |
+{{- include "flakehunter.tempo-config" . | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  labels: { app: tempo }
+spec:
+  replicas: 1
+  strategy: { type: Recreate } # two Tempo pods can't share one data directory
+  selector:
+    matchLabels: { app: tempo }
+  template:
+    metadata:
+      labels: { app: tempo }
+      annotations:
+        checksum/config: {{ include "flakehunter.tempo-config" . | sha256sum }} # restart on a config change
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: tempo
+          image: {{ required "tempo.image" .Values.tempo.image }}
+          args: [-config.file=/etc/tempo/tempo.yaml]
+          ports:
+            - { name: http, containerPort: 3200 }
+            - { name: otlp-http, containerPort: 4318 }
+          resources:
+            requests: { memory: {{ .Values.tempo.memory }}, cpu: 50m }
+            limits: { memory: {{ .Values.tempo.memory }} }
+          readinessProbe:
+            httpGet: { path: /ready, port: 3200 }
+          volumeMounts:
+            - { name: config, mountPath: /etc/tempo }
+            - { name: data, mountPath: /var/tempo }
+      volumes:
+        - name: config
+          configMap: { name: tempo }
+        # shortcut: traces are lost when the pod restarts; use a PVC if you want them across restarts.
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+spec:
+  selector: { app: tempo }
+  ports:
+    - { name: http, port: 3200 }
+    - { name: otlp-http, port: 4318 }
