@@ -1,5 +1,7 @@
 # FlakeHunter
 
+[![CI](https://github.com/varunofficial2509/FlakeHunter/actions/workflows/ci.yml/badge.svg)](https://github.com/varunofficial2509/FlakeHunter/actions/workflows/ci.yml)
+
 ## Local infrastructure
 
 Postgres and Kafka run in Docker Compose. Only Docker is needed. Run from the repo root:
@@ -52,3 +54,9 @@ Agents (Phase 3): `agent-service` (Python) reads `finding.detected` and runs one
 | Autoscaling state  | `kubectl --context k3d-flakehunter -n flakehunter get scaledobject,hpa`          |
 | Pause (keeps data) | `k3d cluster stop flakehunter`, later `k3d cluster start flakehunter`            |
 | Delete everything  | `k3d cluster delete flakehunter` (also deletes the data and the registry)        |
+
+## CI and images
+
+Every pull request and every push to `develop` or `main` runs `.github/workflows/ci.yml`: the Gradle build with all Java tests (Testcontainers on the runner's Docker), agent-service lint and tests, the web typecheck, build and tests, `helm lint`, and the pre-commit hooks (formatting, secret scan).
+
+Each push to `main` runs `.github/workflows/images.yml`, which pushes every image for `linux/amd64` and `linux/arm64` to `ghcr.io/varunofficial2509/flakehunter/<name>` with tags `sha-<commit>` and `latest` (runner images: `jdkN-sha-<commit>` and `jdkN`). New GHCR packages start private; make them public under the repo's Packages if a cluster should pull without a login.

@@ -1,0 +1,90 @@
+# Every PR and every push to develop/main: the same checks as a local build, each stack in its own job.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency: # a new push to the same PR cancels the run still going
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    name: Java (Gradle build and tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v5 # caches dependencies; only main/develop write the cache
+      # Testcontainers starts Postgres and Kafka on the runner's Docker.
+      - run: ./gradlew build
+
+  python:
+    name: Python (agent-service)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/agent-service
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.23" # pyproject.toml requires exactly this uv
+          enable-cache: true
+          cache-dependency-glob: services/agent-service/uv.lock
+      - run: uv sync --frozen
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run pytest
+
+  web:
+    name: Web (typecheck, build, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json # the pnpm version comes from its packageManager field
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build # tsc, then vite
+      - run: pnpm test
+
+  helm:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+      # The chart requires the image tags that up.sh passes; take them from images.env the same way.
+      - run: |
+          set -a; source deploy/images.env; set +a
+          helm lint deploy/charts/flakehunter --strict --set image.tag=ci \
+            --set postgres.image="$POSTGRES_IMAGE" --set kafka.image="$KAFKA_IMAGE" \
+            --set prometheus.image="$PROMETHEUS_IMAGE" --set grafana.image="$GRAFANA_IMAGE" \
+            --set tempo.image="$TEMPO_IMAGE"
+
+  pre-commit:
+    name: Pre-commit hooks (format, secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.23"
+      - run: uvx pre-commit@4.7.0 run --all-files --show-diff-on-failure

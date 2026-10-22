@@ -582,7 +582,7 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 - [x] OpenTelemetry tracing across services; AI and hunt dashboards
 - [ ] GitHub App: webhook-triggered hunts and PR comments
-- [ ] GitHub Actions CI/CD with multi-arch images
+- [x] GitHub Actions CI/CD with multi-arch images
 - [ ] Cloud deploy with scripted create/destroy
 - [ ] Benchmark run and results table
 - [ ] README, demo video, first write-up
