@@ -55,10 +55,12 @@ async def handle(graph: CompiledStateGraph, topic: str, envelope: dict) -> None:
     state = await graph.aget_state(config)
     if topic in RESUMES:
         pending = state.values.get("pending")
-        if RESUMES[topic] not in state.next or not pending or pending["experimentId"] != payload["experimentId"]:
-            return  # a duplicate, or an answer the session no longer waits for
-        await graph.ainvoke(Command(resume=payload), config)
-        return
+        if RESUMES[topic] in state.next and pending and pending["experimentId"] == payload["experimentId"]:
+            await graph.ainvoke(Command(resume=payload), config)
+        elif state.next and not any(t.interrupts for t in state.tasks):
+            # Redelivered because the pod died after taking this answer in, before the session paused again.
+            await graph.ainvoke(None, config)
+        return  # otherwise a duplicate, or an answer the session no longer waits for
     if state.values and not state.next:
         return  # finished earlier: a redelivery
     # A session cut off mid-graph (pod killed) resumes from its last checkpoint instead of starting over.

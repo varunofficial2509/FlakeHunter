@@ -16,9 +16,13 @@ SERVICES=(project-service hunt-orchestrator result-aggregator api-gateway)
 
 if ! k3d cluster list flakehunter >/dev/null 2>&1; then
   k3d cluster create --config deploy/k3d/cluster.yaml --image "$K3S_IMAGE"
+else
+  # After `k3d cluster stop`; also starts the registry the pushes below need.
+  k3d cluster start flakehunter
 fi
 
-./gradlew --quiet bootJar
+# --no-build-cache: the local cache keeps getting poisoned with broken build-logic outputs ("Unresolved reference 'java'").
+./gradlew --quiet --no-build-cache bootJar
 for s in "${SERVICES[@]}"; do
   docker build --quiet -f deploy/docker/service.Dockerfile --build-arg JRE_IMAGE --build-arg SERVICE="$s" \
     -t "$REGISTRY/flakehunter/$s:$TAG" .

@@ -1,6 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, type AiSettings, type RunnerSettings } from "../api";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Field,
+  PageHeader,
+  PageSkeleton,
+  Skeleton,
+  Spinner,
+  Switch,
+} from "../ui";
 
 const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
 
@@ -40,8 +52,8 @@ export function AdminPage() {
   });
   const [memory, setMemory] = useState<number>();
 
-  if (runner.error) return <p role="alert">{runner.error.message}</p>;
-  if (!runner.data) return <p>Loading…</p>;
+  if (runner.error) return <Alert>{runner.error.message}</Alert>;
+  if (!runner.data) return <PageSkeleton />;
   const r = runner.data;
   const perRunner = memory ?? r.memoryMb;
 
@@ -56,95 +68,130 @@ export function AdminPage() {
 
   return (
     <>
-      <h1>Admin: runners</h1>
-      {/* infraMemoryMb is 0 in Kubernetes: there the runners have their own quota. */}
-      {r.infraMemoryMb > 0 ? (
-        <p>
-          Docker has {gb(r.dockerMemoryMb)} and {r.dockerCpus} CPUs;{" "}
-          {gb(r.infraMemoryMb)} of that is kept for Kafka and Postgres (set by
-          the deploy preset). Changes apply to the next hunt.
+      <PageHeader
+        title="Admin"
+        subtitle="Runner resources, AI agents and caches."
+      />
+
+      <Card title="AI agents" icon="sparkles">
+        {ai.isPending && <Skeleton lines={2} />}
+        {ai.error && <Alert>{ai.error.message}</Alert>}
+        {ai.data && !ai.data.available && (
+          <Alert kind="info">
+            Agents run only in the Kubernetes deployment.
+          </Alert>
+        )}
+        {ai.data?.available && (
+          <>
+            <div className="toggle-row">
+              <div>
+                <strong>
+                  AI diagnosis
+                  <Badge tone={ai.data.enabled ? "ai" : "neutral"}>
+                    {ai.data.enabled ? "on" : "off"}
+                  </Badge>
+                  {switchAi.isPending && <Spinner />}
+                </strong>
+                <small className="muted">
+                  {ai.data.enabled
+                    ? "Detection never needs them; switching off stops the agent pods."
+                    : "AI analysis paused: findings wait in Kafka until you switch it on."}
+                </small>
+              </div>
+              <Switch
+                label="AI agents"
+                checked={ai.data.enabled}
+                disabled={switchAi.isPending}
+                onChange={(enabled) => switchAi.mutate(enabled)}
+              />
+            </div>
+            <p className="muted">
+              <strong>{ai.data.pendingFindings}</strong> findings waiting for a
+              diagnosis.
+            </p>
+          </>
+        )}
+        {switchAi.error && <Alert>{switchAi.error.message}</Alert>}
+        {switchAi.isSuccess && (
+          <Alert kind="success">
+            AI agents switched {switchAi.data.enabled ? "on" : "off"}.
+          </Alert>
+        )}
+      </Card>
+
+      <Card title="Runners" icon="cpu">
+        {/* infraMemoryMb is 0 in Kubernetes: there the runners have their own quota. */}
+        <p className="muted">
+          {r.infraMemoryMb > 0
+            ? `Docker has ${gb(r.dockerMemoryMb)} and ${r.dockerCpus} CPUs; ${gb(r.infraMemoryMb)} of that is kept for Kafka and Postgres (set by the deploy preset).`
+            : `Runners share a ${gb(r.dockerMemoryMb)} quota in the cluster (set by the Helm chart) on ${r.dockerCpus} CPUs.`}{" "}
+          Changes apply to the next hunt.
         </p>
-      ) : (
-        <p>
-          Runners share a {gb(r.dockerMemoryMb)} quota in the cluster (set by
-          the Helm chart) on {r.dockerCpus} CPUs. Changes apply to the next
-          hunt.
+        <form onSubmit={submit}>
+          <div className="form-row">
+            <Field label="Memory per runner container">
+              <select
+                name="memoryMb"
+                defaultValue={r.memoryMb}
+                onChange={(e) => setMemory(Number(e.target.value))}
+              >
+                {r.memoryMbOptions.map((mb) => (
+                  <option key={mb} value={mb}>
+                    {gb(mb)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Total for all runners of a hunt">
+              <select name="totalMemoryMb" defaultValue={r.totalMemoryMb}>
+                {r.totalMemoryMbOptions
+                  .filter((mb) => mb >= perRunner)
+                  .map((mb) => (
+                    <option key={mb} value={mb}>
+                      {gb(mb)} ({Math.floor(mb / perRunner)} at once)
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          </div>
+          {save.error && <Alert>{save.error.message}</Alert>}
+          {save.isSuccess && (
+            <Alert kind="success">
+              Saved. The next hunt uses these limits.
+            </Alert>
+          )}
+          <Button type="submit" pending={save.isPending} icon="check">
+            {save.isPending ? "Saving…" : "Save"}
+          </Button>
+        </form>
+      </Card>
+
+      <Card title="Maven cache" icon="database">
+        <p className="muted">
+          Dependencies downloaded by earlier hunts. Clear it if it grows too big
+          or a download got corrupted; the next hunt downloads them again.
         </p>
-      )}
-
-      <form onSubmit={submit}>
-        <label>
-          Memory per runner container
-          <select
-            name="memoryMb"
-            defaultValue={r.memoryMb}
-            onChange={(e) => setMemory(Number(e.target.value))}
-          >
-            {r.memoryMbOptions.map((mb) => (
-              <option key={mb} value={mb}>
-                {gb(mb)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Total for all runners of a hunt
-          <select name="totalMemoryMb" defaultValue={r.totalMemoryMb}>
-            {r.totalMemoryMbOptions
-              .filter((mb) => mb >= perRunner)
-              .map((mb) => (
-                <option key={mb} value={mb}>
-                  {gb(mb)} ({Math.floor(mb / perRunner)} at once)
-                </option>
-              ))}
-          </select>
-        </label>
-        {save.error && <p role="alert">{save.error.message}</p>}
-        {save.isSuccess && <p>Saved.</p>}
-        <button type="submit" disabled={save.isPending}>
-          Save
-        </button>
-      </form>
-
-      <h2>AI agents</h2>
-      {ai.data && !ai.data.available && (
-        <p>Agents run only in the Kubernetes deployment.</p>
-      )}
-      {ai.data?.available && (
-        <>
-          <p>
-            AI agents are <strong>{ai.data.enabled ? "on" : "off"}</strong>.{" "}
-            {ai.data.enabled
-              ? "Detection never needs them; switching off stops the agent pods."
-              : "AI analysis paused: findings wait in Kafka until you switch it on."}{" "}
-            {ai.data.pendingFindings} findings waiting for a diagnosis.
-          </p>
-          <button
-            onClick={() => switchAi.mutate(!ai.data.enabled)}
-            disabled={switchAi.isPending}
-          >
-            {ai.data.enabled ? "Switch AI off" : "Switch AI on"}
-          </button>
-        </>
-      )}
-      {ai.error && <p role="alert">{ai.error.message}</p>}
-      {switchAi.error && <p role="alert">{switchAi.error.message}</p>}
-
-      <h2>Maven cache</h2>
-      <p>
-        Dependencies downloaded by earlier hunts. Clear it if it grows too big
-        or a download got corrupted; the next hunt downloads them again.
-      </p>
-      <button
-        onClick={() =>
-          confirm("Delete the Maven cache?") && clearCache.mutate()
-        }
-        disabled={clearCache.isPending}
-      >
-        Clear Maven cache
-      </button>
-      {clearCache.error && <p role="alert">{clearCache.error.message}</p>}
-      {clearCache.isSuccess && <p>Cleared.</p>}
+        <Button
+          variant="danger"
+          icon="trash"
+          onClick={() =>
+            confirm("Delete the Maven cache?") && clearCache.mutate()
+          }
+          pending={clearCache.isPending}
+        >
+          {clearCache.isPending ? "Clearing…" : "Clear Maven cache"}
+        </Button>
+        {clearCache.error && (
+          <div style={{ marginTop: 12 }}>
+            <Alert>{clearCache.error.message}</Alert>
+          </div>
+        )}
+        {clearCache.isSuccess && (
+          <div style={{ marginTop: 12 }}>
+            <Alert kind="success">Maven cache cleared.</Alert>
+          </div>
+        )}
+      </Card>
     </>
   );
 }

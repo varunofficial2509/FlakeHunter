@@ -1,6 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router";
 import { api, type ExperimentProgress, type Finding } from "../api";
+import {
+  Alert,
+  Badge,
+  Card,
+  Empty,
+  Icon,
+  PageHeader,
+  PageSkeleton,
+  Progress,
+  StatusBadge,
+} from "../ui";
 import { Busy, isRunning, progressText } from "./Busy";
 import { Diff } from "./Diff";
 
@@ -33,8 +44,8 @@ export function FindingPage() {
     refetchInterval: 3000,
   });
 
-  if (finding.error) return <p role="alert">{finding.error.message}</p>;
-  if (!finding.data) return <p>Loading…</p>;
+  if (finding.error) return <Alert>{finding.error.message}</Alert>;
+  if (!finding.data) return <PageSkeleton />;
   const f = finding.data;
   const d = f.diagnosis;
   const running = over
@@ -45,68 +56,96 @@ export function FindingPage() {
 
   return (
     <>
-      <p>
-        <Link to={`/hunts/${f.huntId}`}>← hunt</Link>
-      </p>
-      <h1>
-        <code>{f.testId}</code>
-      </h1>
-      <p>
-        Failed {f.evidence.failures}/{f.evidence.runs} runs, triggered by{" "}
-        {f.evidence.triggeringStrategies.join(", ") ||
-          "nothing extra: it fails in the default setup too (UTC, normal test order)"}
-        .
-      </p>
+      <PageHeader
+        back={
+          <Link to={`/hunts/${f.huntId}`}>
+            <Icon name="back" /> Hunt
+          </Link>
+        }
+        title={<code>{f.testId}</code>}
+        subtitle={
+          <>
+            <span>
+              <Icon name="bug" size={14} />
+              Failed {f.evidence.failures}/{f.evidence.runs} runs
+            </span>
+            <span>
+              Triggered by{" "}
+              {f.evidence.triggeringStrategies.length
+                ? f.evidence.triggeringStrategies.map((s) => (
+                    <Badge key={s} tone="info">
+                      {s}
+                    </Badge>
+                  ))
+                : "nothing extra: it fails in the default setup too (UTC, normal test order)"}
+            </span>
+          </>
+        }
+      />
 
-      <h2>Diagnosis</h2>
-      {!d && (
-        <p>
-          Waiting for the agents (if AI is off, switch it on in{" "}
-          <Link to="/admin">Admin</Link>).
-        </p>
-      )}
-      {d && (
-        <p>
-          <strong>
-            {d.status ? (
-              (OUTCOME[d.status] ?? d.status)
-            ) : (
-              <Busy>Diagnosing</Busy>
-            )}
-          </strong>
-          {d.category && (
-            <>
-              {" "}
-              · {d.category}
-              {d.confidence != null &&
-                `, confidence ${Math.round(d.confidence * 100)}%`}
-            </>
-          )}
-          {d.explanation && (
-            <>
-              <br />
-              {d.explanation}
-            </>
-          )}
-        </p>
-      )}
+      <div className="stats">
+        <div className="stat">
+          <small>Flakiness score</small>
+          <strong>{Number(f.score).toFixed(2)}</strong>
+        </div>
+        <div className="stat">
+          <small>Failure rate</small>
+          <strong>{Math.round(f.failureRate * 100)}%</strong>
+        </div>
+        <div className="stat">
+          <small>Runs</small>
+          <strong>{f.evidence.runs}</strong>
+        </div>
+        {d?.confidence != null && (
+          <div className="stat">
+            <small>AI confidence</small>
+            <strong>{Math.round(d.confidence * 100)}%</strong>
+          </div>
+        )}
+      </div>
+
+      <Card title="Diagnosis" icon="sparkles">
+        {!d && (
+          <Empty title="Waiting for the agents" icon="sparkles">
+            If AI is off, switch it on in <Link to="/admin">Admin</Link>.
+          </Empty>
+        )}
+        {d && (
+          <div className="diagnosis">
+            <div className="row">
+              {d.status ? (
+                <StatusBadge
+                  status={d.status}
+                  label={OUTCOME[d.status] ?? d.status}
+                />
+              ) : (
+                <StatusBadge status="DIAGNOSING" />
+              )}
+              {d.category && <Badge tone="ai">{d.category}</Badge>}
+            </div>
+            {d.explanation && <p>{d.explanation}</p>}
+          </div>
+        )}
+      </Card>
+
       {d?.patch && (
-        <>
-          <h2>Verified fix</h2>
+        <Card title="Verified fix" icon="check">
           <Diff diff={d.patch} />
-        </>
+        </Card>
       )}
 
       {!!d?.steps.length && (
-        <>
-          <h2>Reasoning timeline</h2>
+        <Card title="Reasoning timeline" icon="clock">
           <ol className="timeline">
             {d.steps.map((s, i) => (
               <li key={i}>
-                <time dateTime={s.at}>
-                  {new Date(s.at).toLocaleTimeString()}
-                </time>{" "}
-                <strong>{s.agent}</strong>: {s.summary}
+                <div className="step-head">
+                  <Badge tone="ai">{s.agent}</Badge>
+                  <time dateTime={s.at}>
+                    {new Date(s.at).toLocaleTimeString()}
+                  </time>
+                </div>
+                {s.summary}
                 {s.plan && (
                   <div className="plan">
                     {s.plan.strategy}
@@ -118,12 +157,17 @@ export function FindingPage() {
               </li>
             ))}
             {running.map((e) => (
-              <li key={e.id}>
+              <li key={e.id} className="running">
                 <Busy>{progressText(e)}</Busy>
+                <Progress
+                  label={progressText(e)}
+                  value={e.status === "PREPARING" ? null : e.finished}
+                  max={e.planned}
+                />
               </li>
             ))}
           </ol>
-        </>
+        </Card>
       )}
     </>
   );

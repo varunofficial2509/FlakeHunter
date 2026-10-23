@@ -80,6 +80,19 @@ class HuntController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Hunt " + id + " not found"));
     }
 
+    record RunProgress(long planned, long finished, long crashed) {}
+
+    // The hunt's own detection runs (experiments have their own counts below), for the UI's progress bar.
+    @GetMapping("/{id}/progress")
+    RunProgress progress(@PathVariable UUID id) {
+        return jdbc.sql("""
+                SELECT count(*) AS planned,
+                       count(*) FILTER (WHERE status NOT IN ('SCHEDULED', 'RUNNING')) AS finished,
+                       count(*) FILTER (WHERE status IN ('FAILED', 'TIMED_OUT')) AS crashed
+                FROM hunt.runs WHERE hunt_id = ? AND experiment_id IS NULL""").param(id)
+                .query(RunProgress.class).single();
+    }
+
     // One query counts every experiment's runs, so the UI can poll it every few seconds.
     @GetMapping("/{id}/experiments")
     List<ExperimentProgress> experiments(@PathVariable UUID id) {
