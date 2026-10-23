@@ -2,6 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { Link } from "react-router";
 import { ApiError, api, post, type Project } from "../api";
+import {
+  Alert,
+  Button,
+  Card,
+  Empty,
+  Field,
+  Icon,
+  PageHeader,
+  Skeleton,
+} from "../ui";
 
 export function ProjectsPage() {
   const projects = useQuery({
@@ -34,58 +44,88 @@ export function ProjectsPage() {
 
   return (
     <>
-      <h1>Projects</h1>
-      {projects.isPending && <p>Loading…</p>}
-      {projects.error && <p role="alert">{projects.error.message}</p>}
-      <ul>
-        {projects.data?.map((p) => (
-          <li key={p.id}>
-            <Link to={`/projects/${p.id}`}>{p.name}</Link>{" "}
-            <small>{p.repoUrl}</small>
-          </li>
-        ))}
-      </ul>
+      <PageHeader
+        title="Projects"
+        subtitle="Java repositories FlakeHunter can hunt flaky tests in."
+      />
 
-      <h2>Add a project</h2>
-      <form onSubmit={submit}>
-        <label>
-          Name <input name="name" required />
-          {fields.name && <small role="alert">{fields.name}</small>}
-        </label>
-        <label>
-          GitHub URL{" "}
-          <input
-            name="repoUrl"
-            placeholder="https://github.com/owner/repo"
-            required
-          />
-          {fields.repoUrl && <small role="alert">{fields.repoUrl}</small>}
-        </label>
-        <label>
-          Branch <input name="defaultBranch" placeholder="main" />
-          {fields.defaultBranch && (
-            <small role="alert">{fields.defaultBranch}</small>
-          )}
-        </label>
-        <label>
-          JDK
-          <select name="jdkVersion" defaultValue="17">
-            {[8, 11, 17, 21].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Extra Maven arguments{" "}
-          <input name="testCommand" placeholder="-Djdk.version=1.8" />
-        </label>
-        {create.error && !Object.keys(fields).length && (
-          <p role="alert">{create.error.message}</p>
+      <Card title="Your projects" icon="folder">
+        {projects.isPending && <Skeleton />}
+        {projects.error && <Alert>{projects.error.message}</Alert>}
+        {projects.data?.length === 0 && (
+          <Empty title="No projects yet" icon="folder">
+            Add a GitHub repository below to start your first hunt.
+          </Empty>
         )}
-        <button type="submit" disabled={create.isPending}>
-          Add project
-        </button>
-      </form>
+        {!!projects.data?.length && (
+          <div className="project-grid">
+            {projects.data.map((p) => (
+              <Link
+                key={p.id}
+                to={`/projects/${p.id}`}
+                className="project-card"
+              >
+                <strong>
+                  <Icon name="folder" />
+                  {p.name}
+                </strong>
+                <small>{p.repoUrl}</small>
+                <small>
+                  <Icon name="branch" size={12} /> {p.defaultBranch} · JDK{" "}
+                  {p.jdkVersion ?? "?"}
+                </small>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Add a project" icon="plus">
+        <form onSubmit={submit}>
+          <div className="form-row">
+            <Field label="Name" error={fields.name}>
+              <input name="name" required />
+            </Field>
+            <Field label="GitHub URL" error={fields.repoUrl}>
+              <input
+                name="repoUrl"
+                placeholder="https://github.com/owner/repo"
+                required
+              />
+            </Field>
+          </div>
+          <div className="form-row">
+            <Field
+              label="Branch"
+              hint="Defaults to main"
+              error={fields.defaultBranch}
+            >
+              <input name="defaultBranch" placeholder="main" />
+            </Field>
+            <Field label="JDK">
+              <select name="jdkVersion" defaultValue="17">
+                {[8, 11, 17, 21].map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Extra Maven arguments" hint="Optional">
+              <input
+                name="testCommand"
+                placeholder="-Djdk.version=1.8"
+                className="mono"
+              />
+            </Field>
+          </div>
+          {create.error && !Object.keys(fields).length && (
+            <Alert>{create.error.message}</Alert>
+          )}
+          {create.isSuccess && <Alert kind="success">Project added.</Alert>}
+          <Button type="submit" icon="plus" pending={create.isPending}>
+            Add project
+          </Button>
+        </form>
+      </Card>
     </>
   );
 }

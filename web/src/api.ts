@@ -75,6 +75,13 @@ export type Hunt = {
 
 export type Budget = { maxRuns: number; maxParallelPods: number };
 
+/** Counts of the hunt's own detection runs; planned is 0 until the workspace is prepared. */
+export type RunProgress = {
+  planned: number;
+  finished: number;
+  crashed: number;
+};
+
 /** What this machine can run; the API rejects any other budget. */
 export type HuntOptions = {
   maxRuns: number[];
