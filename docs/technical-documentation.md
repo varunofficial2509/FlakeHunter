@@ -572,9 +572,9 @@ Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in
 
 - [x] agent-service skeleton: FastAPI, Kafka consumer, Postgres checkpoints, budgets
 - [x] Triage and investigator with `request_experiment` round trip through the orchestrator
-- [ ] Classifier, fix writer, critic; verification runs
-- [ ] AI kill switch end to end, KEDA scale-to-zero for agent-service
-- [ ] Agent reasoning timeline and diff view in the UI
+- [x] Classifier, fix writer, critic; verification runs
+- [x] AI kill switch end to end, KEDA scale-to-zero for agent-service
+- [x] Agent reasoning timeline and diff view in the UI
 
 **Exit:** one finding goes from detected → diagnosed with real experiments → fix verified 100/100; switching AI off and on drains the queued backlog.
 

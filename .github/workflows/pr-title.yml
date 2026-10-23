@@ -43,6 +43,8 @@ jobs:
             docs
             deps
             repo
+            benchmark
+            observability
           requireScope: false
           subjectPattern: ^(?![A-Z]).+$
           subjectPatternError: "Start the subject with a lowercase letter, e.g. feat(orchestrator): create runner Jobs"
