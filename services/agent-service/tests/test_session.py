@@ -178,6 +178,33 @@ async def test_requests_an_experiment_then_fixes_and_verifies(pool):
     assert await calls(pool, env) == 6  # resuming re-ran no LLM call
 
 
+class Dies(FakeListChatModel):
+    async def ainvoke(self, *args, **kwargs):
+        raise ConnectionError("pod killed mid-call")
+
+
+async def test_a_session_cut_off_after_an_answer_resumes_when_the_answer_is_redelivered(pool):
+    env = envelope()
+    experiment_id = first_experiment_id(env)
+    await handle(make_graph(pool, [experiment()]), FINDING_DETECTED, env)
+    dying = build_graph(
+        FakeListChatModel(responses=[FAKE_PLAN]),
+        Dies(responses=[]),
+        Budget(pool, Settings()),
+        AsyncPostgresSaver(pool),
+        Published(),
+    )
+    with pytest.raises(ConnectionError):
+        await handle(dying, EXPERIMENT_COMPLETED, completed(env, experiment_id, 7))
+    state = await make_graph(pool, []).aget_state(thread(env["payload"]["findingId"]))
+    assert state.next == ("investigate",) and not state.values["pending"]  # took the answer, no longer waiting
+
+    graph = make_graph(pool, [conclusion(False, [])], small_answers=[FAKE_PLAN, classification([])])
+    await handle(graph, EXPERIMENT_COMPLETED, completed(env, experiment_id, 7))  # Kafka redelivers it
+
+    assert (await graph.aget_state(thread(env["payload"]["findingId"]))).values["status"]
+
+
 async def test_a_hidden_failure_is_refused_and_a_failed_verification_gets_one_more_round(pool):
     env = envelope()
     experiment_id = first_experiment_id(env)

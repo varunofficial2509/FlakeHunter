@@ -1,7 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router";
+import {
+  BrowserRouter,
+  Link,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+} from "react-router";
 import { auth } from "./api";
 import { AdminPage } from "./pages/AdminPage";
 import { FindingPage } from "./pages/FindingPage";
@@ -9,6 +16,7 @@ import { HuntPage } from "./pages/HuntPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { Button, Icon } from "./ui";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -19,18 +27,33 @@ function Layout({ children }: { children: ReactNode }) {
   if (!auth.get()) return <Navigate to="/login" replace />;
   return (
     <>
-      <header>
-        <nav>
-          <Link to="/">FlakeHunter</Link> · <Link to="/admin">Admin</Link>
-        </nav>
-        <button
-          onClick={() => {
-            auth.clear();
-            location.assign("/login");
-          }}
-        >
-          Log out
-        </button>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link to="/" className="brand">
+            <Icon name="logo" size={20} />
+            FlakeHunter
+          </Link>
+          <nav className="nav">
+            <NavLink to="/" end>
+              <Icon name="folder" />
+              <span>Projects</span>
+            </NavLink>
+            <NavLink to="/admin">
+              <Icon name="settings" />
+              <span>Admin</span>
+            </NavLink>
+          </nav>
+          <Button
+            variant="ghost"
+            icon="logout"
+            onClick={() => {
+              auth.clear();
+              location.assign("/login");
+            }}
+          >
+            Log out
+          </Button>
+        </div>
       </header>
       <main>{children}</main>
     </>
