@@ -59,17 +59,20 @@ def commit_of(target: dict) -> str:
     """The pinned SHA, or for this repo's control project the newest pushed commit that changed it."""
     if target["sha"]:
         return target["sha"]
+    repo = HERE.parent  # git paths are relative to the working directory
     sha = subprocess.run(
         ["git", "log", "-1", "--format=%H", "--", "benchmark/control"],
-        cwd=HERE,
+        cwd=repo,
         check=True,
         capture_output=True,
         text=True,
     ).stdout.strip()
+    if not sha:
+        sys.exit("No commit contains benchmark/control")
     pushed = subprocess.run(
         ["git", "branch", "-r", "--contains", sha],
         check=False,
-        cwd=HERE,
+        cwd=repo,
         capture_output=True,
         text=True,
     )
@@ -160,8 +163,6 @@ def hunt(api: Api, name: str, target: dict, args) -> dict:
             or time.monotonic() - started > args.timeout * 60
         ):
             break
-    findings = api.call("GET", f"/api/findings?huntId={h['id']}")
-    tokens = tokens_by_finding(h["id"], args.context)
     return {
         "target": name,
         "sha": sha,
@@ -171,20 +172,26 @@ def hunt(api: Api, name: str, target: dict, args) -> dict:
         "at": datetime.now(UTC).isoformat(timespec="seconds"),
         "detectionSeconds": round(detected_at - started) if detected_at else None,
         "totalSeconds": round(time.monotonic() - started),
-        "findings": [
-            {
-                "testId": f["testId"],
-                "score": float(f["score"]),
-                "failures": f["evidence"]["failures"],
-                "runs": f["evidence"]["runs"],
-                "triggeredBy": f["evidence"]["triggeringStrategies"],
-                "outcome": (f["diagnosis"] or {}).get("status"),
-                "category": (f["diagnosis"] or {}).get("category"),
-                "tokens": tokens.get(f["id"], 0),
-            }
-            for f in findings
-        ],
+        "findings": collect(api, h["id"], args.context),
     }
+
+
+def collect(api: Api, hunt_id: str, context: str) -> list[dict]:
+    """The hunt's findings with the agents' outcome so far and the tokens they spent."""
+    tokens = tokens_by_finding(hunt_id, context)
+    return [
+        {
+            "testId": f["testId"],
+            "score": float(f["score"]),
+            "failures": f["evidence"]["failures"],
+            "runs": f["evidence"]["runs"],
+            "triggeredBy": f["evidence"]["triggeringStrategies"],
+            "outcome": (f["diagnosis"] or {}).get("status"),
+            "category": (f["diagnosis"] or {}).get("category"),
+            "tokens": tokens.get(f["id"], 0),
+        }
+        for f in api.call("GET", f"/api/findings?huntId={hunt_id}")
+    ]
 
 
 def score(result: dict, target: dict) -> dict:
@@ -215,13 +222,16 @@ def score(result: dict, target: dict) -> dict:
     }
 
 
+def newest(targets) -> dict[str, Path]:
+    """The newest saved result file per target; names start with the time, so sorting puts it last."""
+    latest = {
+        path.stem.split("-", 3)[-1]: path for path in sorted(RESULTS.glob("*.json"))
+    }
+    return {t: latest[t] for t in targets if t in latest}
+
+
 def report(expected: dict) -> str:
-    latest = {}
-    for path in sorted(
-        RESULTS.glob("*.json")
-    ):  # names start with the time, so the newest wins
-        result = json.loads(path.read_text())
-        latest[result["target"]] = result
+    latest = {t: json.loads(p.read_text()) for t, p in newest(expected).items()}
     lines = [
         "# Benchmark results",
         "",
@@ -297,11 +307,33 @@ def main() -> None:
     parser.add_argument(
         "--report", action="store_true", help="only rewrite benchmark/results.md"
     )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="re-read the agents' results for the newest saved hunt per target, without hunting again",
+    )
     args = parser.parse_args()
     if unknown := set(args.targets) - set(expected):
         parser.error(f"unknown targets {sorted(unknown)}")
 
-    if not args.report:
+    if args.refresh:
+        password = os.environ.get("FLAKEHUNTER_ADMIN_PASSWORD") or sys.exit(
+            "Set FLAKEHUNTER_ADMIN_PASSWORD"
+        )
+        api = Api(args.base, password)
+        for path in newest(args.targets or expected).values():
+            result = json.loads(path.read_text())
+            result["status"] = api.call("GET", f"/api/hunts/{result['huntId']}")[
+                "status"
+            ]
+            result["findings"] = collect(api, result["huntId"], args.context)
+            path.write_text(json.dumps(result, indent=2) + "\n")
+            print(
+                result["target"],
+                json.dumps(score(result, expected[result["target"]])),
+                flush=True,
+            )
+    elif not args.report:
         password = os.environ.get("FLAKEHUNTER_ADMIN_PASSWORD") or sys.exit(
             "Set FLAKEHUNTER_ADMIN_PASSWORD"
         )
