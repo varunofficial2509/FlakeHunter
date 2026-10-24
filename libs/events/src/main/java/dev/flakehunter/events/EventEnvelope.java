@@ -5,7 +5,6 @@ import java.util.UUID;
 
 /**
  * The wrapper around every Kafka event (tech doc section 6). Consumers dedupe on {@code eventId}.
- * shortcut: no traceparent until OpenTelemetry lands in Phase 4.
  */
 public record EventEnvelope<T>(
         UUID eventId, String eventType, int schemaVersion, Instant occurredAt, UUID huntId, T payload) {

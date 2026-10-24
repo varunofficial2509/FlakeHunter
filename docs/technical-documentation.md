@@ -1,10 +1,10 @@
 # FlakeHunter — Technical Documentation
 
-Oct 17, 2026 · @Varun
+> The design spec, written before the build (Oct 2026). Where it differs from the code or the [ADRs](adr/), those are right.
 
 ## 1. Overview
 
-FlakeHunter finds flaky tests in a Java repository by rerunning its test suite many times in parallel Kubernetes pods, then uses a team of AI agents to prove the root cause and verify a fix. It is a solo, base-to-production personal project built for learning and as a resume showcase.
+FlakeHunter finds flaky tests in a Java repository by rerunning its test suite many times in parallel Kubernetes pods, then uses a team of AI agents to prove the root cause and verify a fix. It is a solo personal project, built end to end for learning.
 
 ### Problem
 
@@ -38,27 +38,26 @@ A flaky test passes and fails on the same code. Flaky tests waste CI time, train
 
 Existing flaky-test tools mostly detect, track and quarantine. FlakeHunter's distinct part is the agent loop: agents that design and run their own experiments on Kubernetes to prove a root cause, then verify the fix statistically.
 
-### Working rules for this project
+### Design principles
 
-- Every service boundary must have a reason (scaling, language, or failure isolation) that can be defended in an interview.
+- Every service boundary has a reason: scaling, language, or failure isolation.
 - Detection must work with AI turned off. AI adds diagnosis and fixes on top.
 - No invented results. Every claim in the README or a demo comes from a real run.
 - It is presented honestly as a personal project.
 
 ## 2. Tech stack and constraints
 
-Java owns the core platform, Python owns only the AI agents, and everything runs in Docker on Kubernetes. Versions are targets; pin exact versions in Phase 0.
+Java owns the core platform, Python owns only the AI agents, and everything runs in Docker on Kubernetes. Exact versions are pinned in `gradle/libs.versions.toml` and `deploy/images.env` (ADR 0001).
 
 | Area              | Choice                                                                  | Why                                                       |
 | ----------------- | ----------------------------------------------------------------------- | --------------------------------------------------------- |
-| Core services     | Java 21, Spring Boot 3.x, Spring Cloud Gateway                          | Target-role stack; virtual threads for I/O-heavy services |
+| Core services     | Java 21, Spring Boot 4, Spring Cloud Gateway                            | Target-role stack; virtual threads for I/O-heavy services |
 | Stream processing | Plain Kafka consumers + SQL in result-aggregator (ADR 0005)             | Hunts are scored once at the end; Postgres holds the data |
 | Agent service     | Python 3.12, FastAPI, LangGraph                                         | Best agent tooling; a real reason for a polyglot boundary |
 | LLM               | Hosted Gemini, routed by task (ADR 0006)                                | Local models do not fit beside the cluster on 16 GB       |
 | Frontend          | React 18, TypeScript, Vite, TanStack Query                              | Live dashboard over SSE                                   |
 | Messaging         | Apache Kafka (KRaft, no ZooKeeper)                                      | Durable async events, replay, consumer lag for scaling    |
 | Database          | PostgreSQL 16 (+ pgvector later, optional)                              | Relational state, outbox table                            |
-| Cache / locks     | Redis (optional, Phase 3+)                                              | Rate limits on LLM calls, short-lived locks               |
 | Code-to-K8s       | fabric8 Kubernetes client (Java)                                        | Orchestrator creates Jobs and scales Deployments          |
 | Containers        | Docker, multi-stage builds, ARM64 + AMD64 images                        | Mac is ARM; cloud nodes may be AMD64                      |
 | Local Kubernetes  | k3d or OrbStack Kubernetes                                              | Lighter than minikube on a MacBook Air                    |
@@ -110,7 +109,7 @@ Side states: `FAILED` (unrecoverable error), `CANCELLED` (by user), `AWAITING_AI
 
 Synchronous traffic enters only through the gateway; services coordinate through Kafka events, and each service owns its own Postgres schema.
 
-&#91;embedded content: FlakeHunter architecture · 6 services + runner Jobs\]
+The architecture diagram is in the [README](../README.md#how-it-works).
 
 Runner pods are created by the orchestrator through the Kubernetes API and talk only to Kafka; the agent service can disappear entirely without breaking detection.
 
@@ -150,7 +149,7 @@ Six deployable services plus a short-lived runner image. Each service owns its o
 - `POST /api/projects` — register repo URL, branch, build tool, test command.
 - `GET /api/projects`, `GET /api/projects/{id}`, `PATCH /api/projects/{id}`.
 - `POST /api/github/webhook` — verifies signature; on PR events publishes `hunt.requested` if auto-hunt is on.
-- Consumes `fix.verified` → posts a PR comment or opens a PR (Phase 4).
+- Consumes `fix.verified` → posts a PR comment or opens a PR (not built yet).
 
 ### hunt-orchestrator
 
@@ -411,17 +410,17 @@ For each test with n runs and f failures (excluding skips):
 - Low-rate flakiness (under 1%) needs many runs; local budgets will miss some. Report it as "not detected within budget", not "not flaky".
 - Tests that depend on external services are flagged `NETWORK` and not fixed automatically.
 - JUnit 4 targets are shuffled by class only, so order dependencies between methods of the same JUnit 4 class are missed (ADR 0004).
-- Implementation-dependent tests (relying on HashMap or reflection order) are not exposed by reordering. They need a NonDex strategy, which is not planned for v1. Phase 0 found that some IDoFT "OD" tests are really this kind.
+- Implementation-dependent tests (relying on HashMap or reflection order) are not exposed by reordering. They need a NonDex strategy, which is not planned for v1. The first benchmark runs found that some IDoFT "OD" tests are really this kind.
 
 ## 10. Kubernetes and deployment
 
 Three environments share one set of Helm charts: Docker Compose for fast local development, k3d on the Mac for the real Kubernetes setup, and a short-lived Azure cluster for the public demo.
 
-| Environment | Runs on                                | Used for                              |
-| ----------- | -------------------------------------- | ------------------------------------- |
-| `dev`       | Docker Compose                         | Phase 1 development, fastest feedback |
-| `local-k8s` | k3d (or OrbStack K8s) + local registry | Jobs, KEDA, Helm, kill switch         |
-| `cloud`     | AKS (or Azure VM with k3s)             | Demo, benchmark runs, recording       |
+| Environment | Runs on                                | Used for                           |
+| ----------- | -------------------------------------- | ---------------------------------- |
+| `dev`       | Docker Compose                         | Service development, fast feedback |
+| `local-k8s` | k3d (or OrbStack K8s) + local registry | Jobs, KEDA, Helm, kill switch      |
+| `cloud`     | AKS (or Azure VM with k3s)             | Demo, benchmark runs, recording    |
 
 ### Namespaces
 
@@ -511,12 +510,13 @@ flakehunter/
 │   └── images/                 # base runner Dockerfiles, one per JDK
 ├── web/                        # React + Vite + TypeScript
 ├── libs/
-│   └── events/                 # shared event schemas (JSON Schema) + generated Java/Python types
+│   └── events/                 # event records shared by the Java services
 ├── deploy/
 │   ├── compose/                # docker-compose for dev
 │   ├── charts/                 # Helm charts + umbrella
 │   ├── k3d/                    # local cluster config, registry
-│   └── cloud/                  # Terraform or az scripts
+│   ├── docker/                 # shared service Dockerfile
+│   └── presets/                # machine-size presets for Compose
 ├── benchmark/                  # target repo list, known flaky tests, eval scripts
 ├── docs/                       # this document, ADRs, diagrams
 └── .github/workflows/
@@ -529,71 +529,10 @@ flakehunter/
 - **API:** REST with OpenAPI generated from code; errors as RFC 7807 problem details.
 - **Events:** schema change = new `schemaVersion`; consumers accept current and previous version.
 - **Commits:** Conventional Commits (`feat(orchestrator): ...`).
-- **Decisions:** each significant choice recorded as a short ADR in `docs/adr/` (context, decision, alternatives, consequences). These double as interview notes.
+- **Decisions:** each significant choice recorded as a short ADR in `docs/adr/` (context, decision, alternatives, consequences).
 - **Definition of done for any feature:** tests, metrics/logs added, README section updated, works in `local-k8s`.
 
-## 13. Phased roadmap
-
-Five phases over about 13 weeks, from 18 Oct 2026 to 18 Jan 2027, each ending in something that runs. Never start a phase before the previous exit criterion is met.
-
-### Phase 0 — Prove the core (18–26 Oct)
-
-- [x] Pick 2–3 public Java repos with known flaky tests (`benchmark/targets.md`)
-- [x] Script that clones a repo, runs its tests N times in Docker with shuffled order and seeds, and parses JUnit XML (`benchmark/hunt.py`)
-- [x] Script reports which tests both passed and failed
-- [x] Pin tool versions; create the monorepo skeleton (ADR 0001)
-- [x] Settle the open decisions about runner result transport and image strategy (ADRs 0002–0004)
-
-**Exit:** a flaky test detected on a real repo by a dumb script. Met on 2026-10-19: fastjson's `DateTest4_indian` and `DateTest5_iso8601` were flagged in 10 runs.
-
-### Phase 1 — Platform on Docker Compose (27 Oct – 16 Nov)
-
-- [x] Postgres, Kafka (KRaft), Compose file
-- [x] project-service and hunt-orchestrator with Flyway, outbox relay, hunt state machine
-- [x] Runner base images + publisher sending `test.results` and `run.completed`; remove `runner/junit-extension`
-- [x] result-aggregator with scoring, `finding.detected`, `analysis.completed` (SQL, not Kafka Streams: ADR 0005)
-- [x] api-gateway with JWT; minimal React pages: projects, start hunt, findings list
-- [x] Machine-aware preset options: start-hunt budget dropdowns, Admin Runner panel (memory, clear Maven cache), size presets in `deploy/` for Kafka/Postgres
-- [x] Testcontainers integration tests for the event flow
-
-**Exit:** start a hunt from the UI, runner containers run, a flaky test shows up as a finding.
-
-### Phase 2 — Kubernetes (17 Nov – 7 Dec)
-
-- [x] k3d cluster with local registry; Helm charts for every service + umbrella
-- [x] Orchestrator creates runner Jobs with fabric8; RBAC, quotas, NetworkPolicy
-- [x] Reconciler for DB vs live Jobs (on startup: resumes CREATED/PREPARING/RUNNING hunts, reattaches to their Jobs by name)
-- [x] KEDA for result-aggregator on lag (1 to `keda.maxReplicas`, default 2 for the laptop)
-- [x] Prometheus + Grafana with platform dashboard
-
-**Exit:** a hunt fans out runner pods in the cluster and pods clean up after themselves; killing any platform pod mid-hunt does not lose the hunt.
-
-### Phase 3 — Agents (8–28 Dec)
-
-- [x] agent-service skeleton: FastAPI, Kafka consumer, Postgres checkpoints, budgets
-- [x] Triage and investigator with `request_experiment` round trip through the orchestrator
-- [x] Classifier, fix writer, critic; verification runs
-- [x] AI kill switch end to end, KEDA scale-to-zero for agent-service
-- [x] Agent reasoning timeline and diff view in the UI
-
-**Exit:** one finding goes from detected → diagnosed with real experiments → fix verified 100/100; switching AI off and on drains the queued backlog.
-
-### Phase 4 — Production and showcase (29 Dec – 18 Jan)
-
-- [x] OpenTelemetry tracing across services; AI and hunt dashboards
-- [ ] GitHub App: webhook-triggered hunts and PR comments
-- [x] GitHub Actions CI/CD with multi-arch images
-- [ ] Cloud deploy with scripted create/destroy
-- [ ] Benchmark run and results table
-- [ ] README, demo video, first write-up
-
-**Exit:** public README with benchmark numbers and a demo video recorded on the cloud cluster.
-
-### If time runs short
-
-Cut in this order: GitHub App, Argo CD, Avro/Schema Registry, Redis, Gradle support, cloud deploy (keep a local-k8s recording instead). Never cut: Kafka flow, runner Jobs, the agent experiment loop, the kill switch, the benchmark.
-
-## 14. Evaluation, showcase and open decisions
+## 13. Evaluation and open decisions
 
 The project is judged by one honest benchmark number and one live demo, not by feature count.
 
@@ -604,32 +543,13 @@ The project is judged by one honest benchmark number and one live demo, not by f
 - Metrics: detection recall within budget, false positives, correct root-cause category, fixes proposed, fixes verified, average LLM cost per finding, hunt duration.
 - Report results honestly in the README, including misses.
 
-### Showcase
-
-- **README:** problem, architecture diagram, benchmark table, demo GIF, how to run locally in one command.
-- **Demo video (3–4 min):** start hunt → pods fan out → live run grid → finding appears → agent reasoning timeline with real experiments → diff → 100/100 verification → flip AI off, pods terminate, findings queue → flip on, backlog drains.
-- **Write-ups:** 3–4 LinkedIn posts or a blog series (detection statistics, agents that run experiments, KEDA scale-to-zero, outbox + saga in practice).
-- **Public demo:** cloud cluster during demo windows only, preselected repos.
-
-### Interview talking points
-
-- Why each service is separate, and what would merge if traffic were small.
-- Exactly-once vs at-least-once: outbox, idempotent consumers.
-- Why KEDA on lag instead of CPU-based HPA.
-- The saga for a hunt and how the reconciler repairs drift between DB and live Jobs.
-- Agents that wait on real experiments: checkpointing and resuming across pods.
-- Graceful degradation with the AI kill switch.
-- Running untrusted code safely on Kubernetes.
-- Statistics of detection: why low-rate flakiness needs more runs, Wilson intervals.
-- LLM cost control: routing, budgets, critic loop limits.
-
-### Open decisions (settle in Phase 0–1, record as ADRs)
+### Open decisions
 
 - [x] Result transport from runner: JUnit XML + publisher in the same container (ADR 0002)
 - [x] Runner image: base image per JDK + compile once per hunt (ADR 0003)
 - [x] Test frameworks: JUnit 4 and 5 (ADR 0004)
-- [ ] Kafka on K8s: Strimzi operator vs Bitnami chart
-- [ ] JSON Schema now vs Avro + Schema Registry later
+- [x] Kafka on K8s: a plain StatefulSet in the chart, no operator
+- [x] Event format: JSON with a `schemaVersion` field; Avro + Schema Registry not needed yet
 - [x] LLM providers and default models per agent tier (ADR 0006: Gemini)
 - [ ] Cloud target: AKS vs Azure VM + k3s (cost vs realism)
-- [ ] Gradle support in v1 or Maven only
+- [x] Build tools: Maven only for now

@@ -145,7 +145,7 @@ class HuntService {
         }
     }
 
-    /** ANALYZING → COMPLETED. shortcut: goes to DIAGNOSING / AWAITING_AI instead once agents exist (Phase 3). */
+    /** ANALYZING → COMPLETED when nothing is flaky, otherwise DIAGNOSING, or AWAITING_AI while AI is off. */
     @Transactional
     void completeAnalysis(UUID huntId, int findings) {
         Hunt hunt = lock(huntId);
