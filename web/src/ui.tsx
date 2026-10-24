@@ -65,11 +65,9 @@ const TONE: Record<string, Tone> = {
   RUNNING: "info",
   ANALYZING: "info",
   DIAGNOSING: "ai",
-  VERIFYING: "ai",
   AWAITING_AI: "warn",
   COMPLETED: "success",
   FAILED: "danger",
-  CANCELLED: "neutral",
   REJECTED: "danger",
   FIX_VERIFIED: "success",
   FIX_FAILED: "warn",
@@ -79,7 +77,7 @@ const TONE: Record<string, Tone> = {
   BUDGET_EXCEEDED: "warn",
   ERROR: "danger",
 };
-const ACTIVE = ["PREPARING", "RUNNING", "ANALYZING", "DIAGNOSING", "VERIFYING"];
+const ACTIVE = ["PREPARING", "RUNNING", "ANALYZING", "DIAGNOSING"];
 
 /** A colored pill for a backend status; active ones get a spinner. */
 export function StatusBadge({

@@ -23,7 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 RESULTS = HERE / "results"
 DETECTED = {"DIAGNOSING", "AWAITING_AI", "COMPLETED"}  # detection is over in these
-FINISHED = {"COMPLETED", "FAILED", "CANCELLED"}
+FINISHED = {"COMPLETED", "FAILED"}
 PROPOSED = {
     "FIX_VERIFIED",
     "FIX_FAILED",

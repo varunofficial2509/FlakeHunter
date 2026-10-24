@@ -12,8 +12,7 @@ public record UpdateProjectRequest(
                 String defaultBranch,
         BuildTool buildTool,
         @Size(max = 1000) String testCommand,
-        Integer jdkVersion,
-        Boolean autoHuntOnPr) {
+        Integer jdkVersion) {
 
     @AssertTrue(message = "jdkVersion must be 8, 11, 17 or 21")
     boolean isJdkVersionSupported() {

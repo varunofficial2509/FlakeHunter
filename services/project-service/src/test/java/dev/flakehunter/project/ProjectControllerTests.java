@@ -28,7 +28,6 @@ class ProjectControllerTests {
 
         assertThat(created).hasStatus(HttpStatus.CREATED);
         assertThat(created).bodyJson().extractingPath("$.defaultBranch").isEqualTo("main");
-        assertThat(created).bodyJson().extractingPath("$.autoHuntOnPr").isEqualTo(false);
         String location = created.getResponse().getHeader("Location");
 
         assertThat(mvc.get().uri(location)).hasStatusOk()

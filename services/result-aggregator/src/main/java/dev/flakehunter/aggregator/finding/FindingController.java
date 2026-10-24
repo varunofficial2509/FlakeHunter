@@ -23,9 +23,9 @@ import tools.jackson.databind.json.JsonMapper;
 class FindingController {
 
     record FindingResponse(UUID id, UUID huntId, String testId, BigDecimal score, BigDecimal failureRate,
-            String status, Instant createdAt, JsonNode evidence, JsonNode diagnosis) {}
+            Instant createdAt, JsonNode evidence, JsonNode diagnosis) {}
 
-    private static final String SELECT = "SELECT id, hunt_id, test_id, score, failure_rate, f.status, created_at,"
+    private static final String SELECT = "SELECT id, hunt_id, test_id, score, failure_rate, created_at,"
             + " evidence::text AS evidence, d.snapshot::text AS diagnosis"
             + " FROM results.findings f LEFT JOIN results.diagnoses d ON d.finding_id = f.id ";
 
@@ -52,7 +52,7 @@ class FindingController {
     private FindingResponse map(ResultSet rs, int row) throws SQLException {
         return new FindingResponse(rs.getObject("id", UUID.class), rs.getObject("hunt_id", UUID.class),
                 rs.getString("test_id"), rs.getBigDecimal("score"), rs.getBigDecimal("failure_rate"),
-                rs.getString("status"), rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("created_at").toInstant(),
                 json.readTree(rs.getString("evidence")),
                 rs.getString("diagnosis") == null ? null : json.readTree(rs.getString("diagnosis")));
     }

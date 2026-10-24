@@ -1,6 +1,5 @@
 package dev.flakehunter.project;
 
 public enum BuildTool {
-    MAVEN,
-    GRADLE
+    MAVEN // the runners run Maven only
 }
