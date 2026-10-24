@@ -44,7 +44,7 @@ class Experiments {
             Set.of("BASELINE", "SHUFFLE_ORDER", "TIMEZONE", "PARALLEL", "CPU_THROTTLE");
     // A hunt still running its own runs would count experiment runs as its own.
     private static final Set<HuntStatus> TESTABLE = EnumSet.of(HuntStatus.ANALYZING, HuntStatus.COMPLETED,
-            HuntStatus.AWAITING_AI, HuntStatus.DIAGNOSING, HuntStatus.VERIFYING);
+            HuntStatus.AWAITING_AI, HuntStatus.DIAGNOSING);
     private static final EnumSet<Run.Status> UNFINISHED = EnumSet.of(Run.Status.SCHEDULED, Run.Status.RUNNING);
 
     private final ExperimentRepository experiments;

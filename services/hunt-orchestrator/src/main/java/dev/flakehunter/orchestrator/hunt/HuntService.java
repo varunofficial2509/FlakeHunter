@@ -58,7 +58,7 @@ class HuntService {
     }
 
     /**
-     * Called by the REST API now, and by the hunt.requested listener later. Empty if the project doesn't exist.
+     * Called by the REST API. Empty if the project doesn't exist.
      * The budget is already checked against {@link HuntOptions}.
      */
     Optional<Hunt> start(CreateHuntRequest request, Budget budget) {

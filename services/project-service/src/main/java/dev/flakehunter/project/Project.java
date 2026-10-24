@@ -29,7 +29,6 @@ public class Project {
 
     private String testCommand;
     private Integer jdkVersion;
-    private boolean autoHuntOnPr;
 
     @Column(updatable = false)
     private Instant createdAt;
@@ -39,7 +38,7 @@ public class Project {
     protected Project() {} // for JPA
 
     public Project(String name, String repoUrl, String defaultBranch, BuildTool buildTool,
-            String testCommand, Integer jdkVersion, boolean autoHuntOnPr) {
+            String testCommand, Integer jdkVersion) {
         this.id = UUID.randomUUID();
         this.name = name;
         this.repoUrl = repoUrl;
@@ -47,7 +46,6 @@ public class Project {
         this.buildTool = buildTool;
         this.testCommand = testCommand;
         this.jdkVersion = jdkVersion;
-        this.autoHuntOnPr = autoHuntOnPr;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
     }
@@ -59,7 +57,6 @@ public class Project {
         if (r.buildTool() != null) buildTool = r.buildTool();
         if (r.testCommand() != null) testCommand = r.testCommand();
         if (r.jdkVersion() != null) jdkVersion = r.jdkVersion();
-        if (r.autoHuntOnPr() != null) autoHuntOnPr = r.autoHuntOnPr();
         updatedAt = Instant.now();
     }
 
@@ -70,7 +67,6 @@ public class Project {
     public BuildTool getBuildTool() { return buildTool; }
     public String getTestCommand() { return testCommand; }
     public Integer getJdkVersion() { return jdkVersion; }
-    public boolean isAutoHuntOnPr() { return autoHuntOnPr; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }
