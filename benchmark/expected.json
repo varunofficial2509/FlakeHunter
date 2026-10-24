@@ -47,7 +47,7 @@
     }
   },
   "fastjson": {
-    "about": "Real flaky tests from IDoFT, reproduced in Phase 0 (benchmark/targets.md).",
+    "about": "Real flaky tests from IDoFT, reproduced by benchmark/hunt.py (benchmark/targets.md).",
     "repoUrl": "https://github.com/alibaba/fastjson",
     "sha": "e05e9c5e4be580691cc55a59f3256595393203a1",
     "testCommand": "-Djdk.version=1.8 -Dtest=**/serializer/date/*Test*",

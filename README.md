@@ -1,76 +1,98 @@
 # FlakeHunter
 
 [![CI](https://github.com/varunofficial2509/FlakeHunter/actions/workflows/ci.yml/badge.svg)](https://github.com/varunofficial2509/FlakeHunter/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Local infrastructure
+**Finds flaky tests in a Java repository, then AI agents prove why they flake and write a fix that is verified by rerunning it.**
 
-Postgres and Kafka run in Docker Compose. Only Docker is needed. Run from the repo root:
+A flaky test passes and fails on the same code. Teams usually notice by accident, rerun CI until it is green, and never learn the cause. FlakeHunter takes a repository and a commit, reruns the test suite many times in parallel Kubernetes pods while shaking the environment (test order, time zone, parallelism, CPU), and reports which tests flip. AI agents then investigate each one: they run their own experiments, name the root cause, write a patch, and the patch only counts once the test passes on every rerun.
 
-```
-docker compose --env-file deploy/images.env --env-file deploy/presets/medium.env -f deploy/compose/compose.yaml up -d --wait
-```
+![Findings of a hunt: eight flaky tests, each with a verified fix](docs/images/findings.png)
 
-Pick the size preset that matches your machine; it sets Kafka's heap, Postgres's memory, both containers' memory limits and how long Kafka keeps events:
+## How it works
 
-| Preset   | Machine | Kafka + Postgres limit | Keeps test results / other events | Orchestrator setting              |
-| -------- | ------- | ---------------------- | --------------------------------- | --------------------------------- |
-| `small`  | 8 GB    | 768 MB                 | 1 / 7 days                        | `FLAKEHUNTER_INFRA_MEMORY=768MB`  |
-| `medium` | 16 GB   | 1 GB                   | 3 / 14 days                       | none (the default)                |
-| `large`  | 32 GB   | 1.5 GB                 | 7 / 30 days                       | `FLAKEHUNTER_INFRA_MEMORY=1536MB` |
+1. **Hunt.** You give a repository and a commit SHA. The orchestrator clones and compiles it once, then starts runner pods as Kubernetes Jobs. Each run uses a strategy such as `BASELINE`, `SHUFFLE_ORDER`, `RANDOM_SEED`, `TIMEZONE`, `PARALLEL` or `CPU_THROTTLE`.
+2. **Analyze.** Runners stream JUnit results through Kafka. The aggregator scores every test and flags those with both passes and failures, along with the strategies that trigger them.
+3. **Diagnose.** One agent session per flaky test (Python, LangGraph): triage, an investigator that orders targeted experiments (for example "run this test alone 30 times"), a classifier, a fix writer, and a critic that reviews the patch.
+4. **Verify.** The patched test is rerun 100 times under the condition that made it fail. Only a fix with zero failures is marked **Fix Verified**.
 
-The orchestrator keeps that much of Docker's memory free when it offers runner sizes, so export the setting before starting it. To switch presets, rerun the same command with the other file: Compose recreates Kafka and Postgres (data is kept), and kafka-init applies the new retention to existing topics.
+Detection works with the AI switched off. The agents are an extra layer that can be switched off at runtime; findings wait in Kafka until they come back.
 
-| Service  | From your Mac    | From other containers |
-| -------- | ---------------- | --------------------- |
-| Postgres | `localhost:5432` | `postgres:5432`       |
-| Kafka    | `localhost:9092` | `kafka:29092`         |
-
-Postgres database, user and password are all `flakehunter` (local only). The Kafka topics from the tech doc (section 6) are created on startup.
-
-Stop with `down`. `down -v` also **deletes all data**.
-
-## Local Kubernetes (Phase 2)
-
-The whole platform (5 services, web app, Postgres, Kafka) on a one-node k3d cluster inside Docker. Needs k3d, Helm and kubectl. Stop the Compose stack first: both together don't fit in Docker's memory.
-
-```
-FLAKEHUNTER_ADMIN_PASSWORD=pick-one deploy/k3d/up.sh   # the password is only needed the first time
+```mermaid
+flowchart LR
+    web[React web app] --> gw[api-gateway]
+    gw --> ps[project-service]
+    gw --> ho[hunt-orchestrator]
+    gw --> ra[result-aggregator]
+    ho -- creates Jobs --> run[runner pods]
+    run -- test.results --> k[(Kafka)]
+    k --> ra
+    ra -- finding.detected --> k
+    k --> ag[agent-service<br/>LangGraph + Gemini]
+    ag -- experiment.requested --> k
+    k --> ho
+    ps & ho & ra & ag --> pg[(Postgres)]
 ```
 
-Then open http://localhost:8090 and log in as `admin`. Rerun `deploy/k3d/up.sh` after any code change: it rebuilds the images and rolls them out.
+![An agent diagnosis: root cause, category and the verified patch](docs/images/diagnosis.png)
 
-Hunts run as Kubernetes Jobs in the `flakehunter-runners` namespace. Its quota (3 GB, `runners.memoryMb` in the chart) fits about 2 runners at once; a Job that doesn't fit waits for room. Runners can reach Kafka and the internet, nothing else. The first `up.sh` builds runner images for JDK 8, 11, 17 and 21; `RUNNER_JDKS="17" deploy/k3d/up.sh` builds only the ones you need.
+## Results
 
-Metrics: Grafana at http://localhost:8090/grafana opens on the **FlakeHunter platform** dashboard (consumer lag, replicas, hunts by status, runs in flight, 5xx, JVM heap); log in as `admin` to edit. Prometheus scrapes every service's `/actuator/prometheus` and keeps 1 day. Two more dashboards read Postgres through a read-only role: **FlakeHunter hunts** (run outcomes per strategy, recent hunts, findings) and **FlakeHunter AI** (LLM calls, tokens per agent and model, latency, session outcomes). Traces from every service, the Python agents included, go to Tempo (kept 24 h): open Explore → Tempo in Grafana and search by service, or with TraceQL such as `{ name = "finding.detected process" }`. KEDA scales `result-aggregator` from 1 to 2 replicas when its lag on `test.results` passes 5,000 per replica (`keda.maxReplicas` and `keda.lagThreshold` in the chart; up to 6, the topic's partition count). To watch it happen, run `deploy/k3d/flood-test-results.sh`.
+The `benchmark/control` project seeds one flaky test per root cause (order dependency, shared state, time zone, concurrency, async wait, randomness, unordered collection, resource leak) next to stable tests that must never be reported. In a 40-run hunt on 2026-10-24, FlakeHunter found all 8 seeded flaky tests, flagged no stable test, and verified a fix for all 8.
 
-Agents (Phase 3): `agent-service` (Python) reads `finding.detected` and runs one LangGraph session per finding, checkpointed in Postgres (`agents` schema). Give it a Gemini key with `GEMINI_API_KEY=... deploy/k3d/up.sh`; without one it uses a fake LLM, so the pipeline runs but nothing is really diagnosed. Token caps per finding, hunt and day are `FLAKEHUNTER_TOKENS_PER_*` (ADR 0006). Tests: `cd services/agent-service && uv run pytest`.
+Before the platform existed, a plain script reproduced two real flaky tests from [IDoFT](https://github.com/winglam/idoft-637) in alibaba/fastjson ([`benchmark/targets.md`](benchmark/targets.md)). `benchmark/run.py` repeats these hunts through the API and scores them against [`benchmark/expected.json`](benchmark/expected.json).
 
-| Task               | Command                                                                          |
-| ------------------ | -------------------------------------------------------------------------------- |
-| See the pods       | `kubectl --context k3d-flakehunter -n flakehunter get pods`                      |
-| Logs of a service  | `kubectl --context k3d-flakehunter -n flakehunter logs deploy/hunt-orchestrator` |
-| Runner Jobs        | `kubectl --context k3d-flakehunter -n flakehunter-runners get jobs,pods`         |
-| Logs of a run      | `kubectl --context k3d-flakehunter -n flakehunter-runners logs job/run-<runId>`  |
-| Autoscaling state  | `kubectl --context k3d-flakehunter -n flakehunter get scaledobject,hpa`          |
-| Pause (keeps data) | `k3d cluster stop flakehunter`, later `k3d cluster start flakehunter`            |
-| Delete everything  | `k3d cluster delete flakehunter` (also deletes the data and the registry)        |
+## Quick start
 
-## Benchmark
-
-`benchmark/run.py` hunts every target in `benchmark/expected.json` through the API and scores the findings: flaky tests found, false positives, whether the agents named the right root cause, fixes proposed and verified, tokens per finding, and detection time. Results land in `benchmark/results/` and the table in [`benchmark/results.md`](benchmark/results.md), misses included.
-
-- **control** (`benchmark/control`): one seeded flaky test per root cause (order dependency, shared state, time zone, concurrency, async wait, randomness, unordered collection, resource leak) plus stable tests that must never be reported. The tests carry no hints, since the agents read them; `expected.json` says why each one flakes.
-- **fastjson**: two real flaky tests from IDoFT, reproduced in Phase 0 (`benchmark/targets.md`).
+You need Docker, JDK 21, [k3d](https://k3d.io), Helm and kubectl.
 
 ```bash
-FLAKEHUNTER_ADMIN_PASSWORD=... python3 benchmark/run.py            # all targets, 40 runs, 2 at a time
-python3 benchmark/run.py --report                                  # rebuild results.md from saved runs
+git clone https://github.com/varunofficial2509/FlakeHunter.git && cd FlakeHunter
+FLAKEHUNTER_ADMIN_PASSWORD=pick-one GEMINI_API_KEY=your-key deploy/k3d/up.sh
 ```
 
-The control target hunts this repository at the newest pushed commit that changed `benchmark/control`, so push before running it. With AI off the script scores detection only.
+Open http://localhost:8090, log in as `admin`, add a project and start a hunt. To try the control project, use the repository URL `https://github.com/varunofficial2509/FlakeHunter`, test command `-f benchmark/control/pom.xml`, JDK 21, and commit `cb2a28c0766a3a3947b74d6ef5264971856360fa`.
 
-## CI and images
+Without `GEMINI_API_KEY` everything runs, but a fake LLM stands in for the agents. The first run builds every image and takes a while. It was built and tested on a 16 GB laptop. See [docs/running-locally.md](docs/running-locally.md) for Grafana, tracing, Docker Compose, tests and everyday commands.
 
-Every pull request and every push to `develop` or `main` runs `.github/workflows/ci.yml`: the Gradle build with all Java tests (Testcontainers on the runner's Docker), agent-service lint and tests, the web typecheck, build and tests, `helm lint`, and the pre-commit hooks (formatting, secret scan).
+## Tech stack
 
-Each push to `main` runs `.github/workflows/images.yml`, which pushes every image for `linux/amd64` and `linux/arm64` to `ghcr.io/varunofficial2509/flakehunter/<name>` with tags `sha-<commit>` and `latest` (runner images: `jdkN-sha-<commit>` and `jdkN`). New GHCR packages start private; make them public under the repo's Packages if a cluster should pull without a login.
+| Area          | Choice                                                                    |
+| ------------- | ------------------------------------------------------------------------- |
+| Services      | Java 21, Spring Boot 4, Spring Cloud Gateway, fabric8 Kubernetes client   |
+| Agents        | Python 3.12, FastAPI, LangGraph, Gemini                                   |
+| Messaging     | Apache Kafka (KRaft), transactional outbox                                |
+| Storage       | PostgreSQL 16, one schema per service                                     |
+| Web           | React, TypeScript, Vite, TanStack Query                                   |
+| Platform      | Kubernetes (k3d), Helm, KEDA (scaling on Kafka lag, agents scale to zero) |
+| Observability | OpenTelemetry, Tempo, Prometheus, Grafana                                 |
+| CI            | GitHub Actions, Testcontainers, multi-arch images on GHCR                 |
+
+## Repository layout
+
+```
+services/      api-gateway, project-service, hunt-orchestrator, result-aggregator (Java), agent-service (Python)
+runner/        runner images per JDK and the publisher that streams JUnit results to Kafka
+libs/events/   event types shared by the Java services
+web/           React app
+deploy/        Helm chart, k3d cluster, Docker Compose, size presets
+benchmark/     control project, ground truth and the benchmark script
+docs/          technical documentation, architecture decisions (adr/), local setup
+```
+
+## Documentation
+
+- [Technical documentation](docs/technical-documentation.md): domain model, services, Kafka events, data model, agent design, detection statistics
+- [Architecture decision records](docs/adr/): why each major choice was made
+- [Running locally](docs/running-locally.md)
+
+## Limits
+
+- Java only: Maven with JUnit 4 or 5.
+- Flakiness rarer than about 1 in 40 runs can be missed within a hunt's budget.
+- Tests that depend on HashMap or reflection order need a NonDex strategy, which is not built.
+- No cloud deployment yet, and no GitHub App: hunts are started from the web app.
+
+## License
+
+[MIT](LICENSE)

@@ -117,7 +117,7 @@ The tags are listed in `deploy/images.env`. They are Kafka 4.1.2 (KRaft), Postgr
 1. **Spring Boot 4.0 instead of 3.x.** Open-source support for Boot 3.5 ended with 3.5.16 in June 2026, before this project started. Boot 4.1 is newer, but no Spring Cloud release train supports it yet (2026.0 is only at milestone 1), and the gateway needs Spring Cloud. Boot 4.0.8 with Spring Cloud 2025.1.3 is therefore the newest supported pair.
 2. **JUnit 5 for the runner extension, JUnit 6 for the services.** The extension runs inside target repositories, and the v1 scope is JUnit 5 repos, so it must not pull in JUnit 6.
 3. **SeaweedFS instead of MinIO.** MinIO no longer publishes community container images. SeaweedFS is S3-compatible, so the code only depends on the S3 API, and Azure Blob is still used in the cloud.
-4. **Kafka on Kubernetes.** Bitnami's free charts and images are deprecated, which leaves Strimzi as the realistic option. That decision stays open (tech doc section 14). If it goes ahead, the candidate version is Strimzi 1.2.0.
+4. **Kafka on Kubernetes.** Bitnami's free charts and images are deprecated, which leaves Strimzi as the realistic option. That decision stays open (tech doc section 13). If it goes ahead, the candidate version is Strimzi 1.2.0.
 
 ## Consequences
 

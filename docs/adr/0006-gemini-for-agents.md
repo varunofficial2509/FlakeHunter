@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-21
-- Settles: tech doc section 14 open decision "LLM providers and default models per agent tier"
+- Settles: tech doc section 13 open decision "LLM providers and default models per agent tier"
 
 ## Context
 
