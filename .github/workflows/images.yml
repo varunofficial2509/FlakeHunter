@@ -1,5 +1,5 @@
 # Pushes every image for amd64 and arm64 to GitHub Container Registry when main changes, so a cloud cluster
-# (Phase 4) or another laptop can pull them instead of building. Tags: sha-<commit> and latest; runner images
+# or another laptop can pull them instead of building. Tags: sha-<commit> and latest; runner images
 # jdkN-sha-<commit> and jdkN, matching deploy/images.env's base images.
 name: Images
 

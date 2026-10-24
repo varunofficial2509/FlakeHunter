@@ -23,4 +23,4 @@ v1 supports Maven repositories whose tests use JUnit 4 or JUnit 5 (Jupiter, incl
 - The benchmark can use IDoFT's catalog, which is mostly JUnit 4.
 - `runner/junit-extension` and the `junit5-runner` catalog entry are no longer needed. Remove them when `runner/publisher` replaces them in Phase 1.
 - Order-dependent bugs between methods of the same JUnit 4 class are not found in v1.
-- Gradle targets remain an open decision (tech doc section 14).
+- Gradle targets remain an open decision (tech doc section 13).

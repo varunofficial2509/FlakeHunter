@@ -1,5 +1,5 @@
 apiVersion: v2
 name: flakehunter
-description: The whole FlakeHunter platform on one cluster (Phase 2). deploy/k3d/up.sh installs it.
+description: The whole FlakeHunter platform on one cluster. deploy/k3d/up.sh installs it.
 type: application
 version: 0.1.0

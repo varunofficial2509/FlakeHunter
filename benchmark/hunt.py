@@ -1,10 +1,8 @@
-"""Phase 0 prototype: rerun a repo's tests N times in Docker with shuffled class order, report flaky tests.
+"""The first prototype: rerun a repo's tests N times in Docker with shuffled class order, report flaky tests.
 
-Usage:
-  python3 benchmark/hunt.py https://github.com/FasterXML/jackson-dataformat-xml \
-      2d08f8d0b0248a00c2c79b9a07e936b3287edb07 --runs 10
+Usage: see benchmark/targets.md for a working command.
 
-Throwaway: replaced in Phase 1 by the runner image and the JUnit extension.
+Kept to reproduce benchmark/targets.md; the platform's runner images replaced it.
 """
 
 import argparse

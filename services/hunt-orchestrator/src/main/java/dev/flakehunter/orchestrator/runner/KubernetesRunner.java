@@ -34,7 +34,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Starts runner containers as Kubernetes Jobs in their own namespace (Phase 2). The namespace's ResourceQuota
+ * Starts runner containers as Kubernetes Jobs in their own namespace. The namespace's ResourceQuota
  * caps their memory, its NetworkPolicy lets them reach only Kafka and the internet, and the chart's Role lets
  * this service touch nothing but Jobs, Pods and PersistentVolumeClaims there.
  */
