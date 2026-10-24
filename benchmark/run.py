@@ -275,7 +275,7 @@ def report(expected: dict) -> str:
             failed = f"{f['failures']}/{f['runs']}" if f else "**missed**"
             trig = ", ".join(f["triggeredBy"]) or "default setup" if f else "-"
             details.append(
-                f"| `{test.split('.')[-1]}` | {truth['category']} | {failed} | {trig} "
+                f"| `{test.split('.')[-1]}` | {' or '.join([truth['category'], *truth.get('also', [])])} | {failed} | {trig} "
                 f"| {(f or {}).get('category') or '-'} | {(f or {}).get('outcome') or '-'} |"
             )
         for test in s["falsePositives"]:
