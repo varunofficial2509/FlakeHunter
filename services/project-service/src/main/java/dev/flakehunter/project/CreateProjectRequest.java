@@ -15,8 +15,7 @@ public record CreateProjectRequest(
                 String defaultBranch,
         @NotNull BuildTool buildTool,
         @Size(max = 1000) String testCommand,
-        Integer jdkVersion,
-        Boolean autoHuntOnPr) {
+        Integer jdkVersion) {
 
     @AssertTrue(message = "jdkVersion must be 8, 11, 17 or 21")
     boolean isJdkVersionSupported() {
@@ -25,6 +24,6 @@ public record CreateProjectRequest(
 
     Project toProject() {
         return new Project(name, repoUrl, defaultBranch == null ? "main" : defaultBranch, buildTool,
-                testCommand, jdkVersion, Boolean.TRUE.equals(autoHuntOnPr));
+                testCommand, jdkVersion);
     }
 }

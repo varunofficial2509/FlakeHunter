@@ -21,7 +21,7 @@ import {
 } from "../ui";
 import { Busy, isRunning, progressText } from "./Busy";
 
-const FINISHED = ["COMPLETED", "FAILED", "CANCELLED"];
+const FINISHED = ["COMPLETED", "FAILED"];
 // Detection is over in these: the findings are final, agents may still be diagnosing them.
 const ANALYZED = ["COMPLETED", "DIAGNOSING", "AWAITING_AI"];
 const DETECTING = ["CREATED", "PREPARING", "RUNNING"];
@@ -41,7 +41,6 @@ const PHASE: Record<string, number> = {
   ANALYZING: 2,
   AWAITING_AI: 3,
   DIAGNOSING: 3,
-  VERIFYING: 3,
   COMPLETED: 5, // past the last step: everything done
 };
 

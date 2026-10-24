@@ -24,7 +24,7 @@ import {
   shortSha,
 } from "../ui";
 
-const FINISHED = ["COMPLETED", "FAILED", "CANCELLED", "AWAITING_AI"];
+const FINISHED = ["COMPLETED", "FAILED", "AWAITING_AI"];
 
 export function ProjectPage() {
   const { id } = useParams();

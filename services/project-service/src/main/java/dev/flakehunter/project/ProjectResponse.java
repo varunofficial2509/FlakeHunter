@@ -11,12 +11,11 @@ public record ProjectResponse(
         BuildTool buildTool,
         String testCommand,
         Integer jdkVersion,
-        boolean autoHuntOnPr,
         Instant createdAt,
         Instant updatedAt) {
 
     static ProjectResponse from(Project p) {
         return new ProjectResponse(p.getId(), p.getName(), p.getRepoUrl(), p.getDefaultBranch(), p.getBuildTool(),
-                p.getTestCommand(), p.getJdkVersion(), p.isAutoHuntOnPr(), p.getCreatedAt(), p.getUpdatedAt());
+                p.getTestCommand(), p.getJdkVersion(), p.getCreatedAt(), p.getUpdatedAt());
     }
 }
