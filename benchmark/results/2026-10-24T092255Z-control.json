@@ -1,0 +1,95 @@
+{
+  "target": "control",
+  "sha": "cb2a28c0766a3a3947b74d6ef5264971856360fa",
+  "huntId": "ddd1f5e6-a415-4626-ac53-ba291e5cda85",
+  "status": "COMPLETED",
+  "budget": {
+    "maxRuns": 40,
+    "maxParallelPods": 2
+  },
+  "at": "2026-10-24T09:22:55+00:00",
+  "detectionSeconds": 186,
+  "totalSeconds": 4093,
+  "findings": [
+    {
+      "testId": "dev.flakehunter.control.EmailSenderTest#sendsTheEmailInTheBackground",
+      "score": 0.9,
+      "failures": 14,
+      "runs": 40,
+      "triggeredBy": [],
+      "outcome": "FIX_VERIFIED",
+      "category": "ASYNC_WAIT",
+      "tokens": 9963
+    },
+    {
+      "testId": "dev.flakehunter.control.ReportDateTest#printsTheEpochAsMidnight",
+      "score": 0.857,
+      "failures": 6,
+      "runs": 40,
+      "triggeredBy": ["TIMEZONE"],
+      "outcome": "FIX_VERIFIED",
+      "category": "TIME_DEPENDENT",
+      "tokens": 9601
+    },
+    {
+      "testId": "dev.flakehunter.control.TagListTest#listsTagsInTheOrderAdded",
+      "score": 0.846,
+      "failures": 12,
+      "runs": 40,
+      "triggeredBy": ["PARALLEL", "SHUFFLE_ORDER", "TIMEZONE"],
+      "outcome": "FIX_VERIFIED",
+      "category": "SHARED_STATE",
+      "tokens": 17696
+    },
+    {
+      "testId": "dev.flakehunter.control.VisitCounterTest#countsVisitsFromTwoThreads",
+      "score": 0.846,
+      "failures": 25,
+      "runs": 40,
+      "triggeredBy": [],
+      "outcome": "FIX_VERIFIED",
+      "category": "CONCURRENCY",
+      "tokens": 12712
+    },
+    {
+      "testId": "dev.flakehunter.control.TeamDraftTest#firstTeamHasACaptain",
+      "score": 0.786,
+      "failures": 6,
+      "runs": 40,
+      "triggeredBy": ["CPU_THROTTLE", "PARALLEL", "SHUFFLE_ORDER", "TIMEZONE"],
+      "outcome": "FIX_VERIFIED",
+      "category": "RANDOMNESS",
+      "tokens": 14767
+    },
+    {
+      "testId": "dev.flakehunter.control.ExportLockTest#takesTheExportLock",
+      "score": 0.731,
+      "failures": 12,
+      "runs": 40,
+      "triggeredBy": ["PARALLEL", "SHUFFLE_ORDER"],
+      "outcome": "FIX_VERIFIED",
+      "category": "SHARED_STATE",
+      "tokens": 62098
+    },
+    {
+      "testId": "dev.flakehunter.control.AmountFormatTest#formatsTwoDecimals",
+      "score": 0.682,
+      "failures": 10,
+      "runs": 40,
+      "triggeredBy": ["PARALLEL", "SHUFFLE_ORDER"],
+      "outcome": "FIX_VERIFIED",
+      "category": "SHARED_STATE",
+      "tokens": 12753
+    },
+    {
+      "testId": "dev.flakehunter.control.PriceLookupTest#readsAWarmedPrice",
+      "score": 0.667,
+      "failures": 5,
+      "runs": 40,
+      "triggeredBy": ["PARALLEL", "SHUFFLE_ORDER"],
+      "outcome": "FIX_VERIFIED",
+      "category": "ORDER_DEPENDENCY",
+      "tokens": 18295
+    }
+  ]
+}

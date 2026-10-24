@@ -38,7 +38,13 @@ flowchart LR
 
 ## Results
 
-The `benchmark/control` project seeds one flaky test per root cause (order dependency, shared state, time zone, concurrency, async wait, randomness, unordered collection, resource leak) next to stable tests that must never be reported. In a 40-run hunt on 2026-10-24, FlakeHunter found all 8 seeded flaky tests, flagged no stable test, and verified a fix for all 8.
+The `benchmark/control` project seeds one flaky test per root cause (order dependency, shared state, time zone, concurrency, async wait, randomness, unordered collection, resource leak) next to stable tests that must never be reported. One 40-run hunt on 2026-10-24:
+
+| Detected | False positives | Root cause right | Fixes verified | Detection time | Tokens per finding |
+| -------- | --------------- | ---------------- | -------------- | -------------- | ------------------ |
+| 8/8      | 0               | 7/8              | 8/8            | 186 s          | ~20k               |
+
+The miss: the agents called the unordered-collection test shared state, though their fix still passed 100 reruns. Per-test details are in [`benchmark/results.md`](benchmark/results.md).
 
 Before the platform existed, a plain script reproduced two real flaky tests from [IDoFT](https://github.com/winglam/idoft-637) in alibaba/fastjson ([`benchmark/targets.md`](benchmark/targets.md)). `benchmark/run.py` repeats these hunts through the API and scores them against [`benchmark/expected.json`](benchmark/expected.json).
 
