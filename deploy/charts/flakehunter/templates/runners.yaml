@@ -47,7 +47,8 @@ spec:
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
-            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16] # pods, services, Docker and home networks
+            # pods, services, Docker and home networks, and link-local (incl. the cloud metadata IP)
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
 ---
 # The orchestrator's identity. Its Role below lives in the runner namespace, so it can do nothing elsewhere.
 apiVersion: v1
